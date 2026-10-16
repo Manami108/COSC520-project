@@ -1,10 +1,7 @@
-"""Common evaluation used by brute force and future approximate indexes."""
 from time import perf_counter
 import numpy as np
 
-
 def recall_at_k(ground_truth: np.ndarray, predicted: np.ndarray, k: int = 10) -> float:
-    """Mean fraction of exact top-k IDs retrieved (range: 0 to 1)."""
     truth = np.asarray(ground_truth)
     pred = np.asarray(predicted)
     if truth.ndim != 2 or pred.ndim != 2 or truth.shape[0] != pred.shape[0]:
@@ -16,9 +13,7 @@ def recall_at_k(ground_truth: np.ndarray, predicted: np.ndarray, k: int = 10) ->
         for a, b in zip(truth, pred)
     ]))
 
-
 def benchmark_queries(index, queries: np.ndarray, k: int):
-    """Measure per-query latency; returns (indices, distances, summary)."""
     timings = []
     neighbors, distances = [], []
     for query in queries:

@@ -1,69 +1,301 @@
-# COSC 520: Exact k-NN baseline (starter)
+# COSC 520 — Approximate Nearest Neighbour Search for RAG
 
-Starter components for comparing approximate nearest neighbor methods: LSH, IVF, HNSW. Written as an educational draft to adapt and understand, not as a substitute for independent development.
+**Team:** Mahdieh Sadat, Manami Yano
 
-## Setup
+## 1. Project Overview
+
+This project investigates Approximate Nearest Neighbour (ANN) search algorithms for Retrieval-Augmented Generation (RAG) systems.
+
+RAG systems retrieve relevant information from large vector databases. However, exact nearest-neighbour search becomes computationally expensive as the number of vectors increases.
+
+We implement and compare several nearest-neighbour search algorithms in Python/NumPy, focusing on search accuracy, computational efficiency, scalability, and memory usage.
+
+### Algorithms
+
+| Algorithm | Description | Role |
+|---|---|---|
+| Brute-force k-NN | Exhaustive exact nearest-neighbour search | Baseline |
+| LSH | Locality-Sensitive Hashing using random hyperplanes | Approximate |
+| IVF | Inverted File Index using k-means clustering | Approximate |
+| HNSW | Hierarchical Navigable Small World graph | Approximate |
+| Vamana / DiskANN | Graph-based ANN search optimized for large-scale retrieval | SOTA literature reference |
+
+The first four algorithms are planned for implementation from scratch. Vamana/DiskANN will be studied as an advanced reference approach.
+
+## 2. Project Structure
+
+```text
+project-code/
+├── algorithms/
+│   ├── __init__.py
+│   ├── knn.py
+│   ├── lsh.py
+│   ├── ivf.py
+│   └── hnsw.py
+│
+├── tests/
+│   ├── test_knn.py
+│   ├── test_lsh.py
+│   ├── test_ivf.py
+│   └── test_hnsw.py
+│
+├── experiments/
+│   ├── benchmark.py
+│   └── plots.py
+│
+├── data/
+├── results/
+├── docs/
+│
+├── datasets.py
+├── evaluate.py
+├── run.py
+├── app.py
+├── requirements.txt
+├── README.md
+└── .gitignore
+```
+
+**Note:** This is the planned final structure. Some algorithms, experiment scripts, and visualization components are not yet implemented.
+
+## 3. Installation
+
+### Step 1 — Clone the repository
 
 ```bash
-python -m venv .venv
-source .venv/bin/activate  # Windows: .venv\\Scripts\\activate
-pip install -r requirements.txt
+git clone https://github.com/YOUR_USERNAME/COSC520-ANN-Search.git
+cd COSC520-ANN-Search
+```
+
+Replace `YOUR_USERNAME` with your GitHub username. If you already have the project locally, open that folder instead.
+
+### Step 2 — Create a virtual environment
+
+```bash
+python3 -m venv .venv
+```
+
+### Step 3 — Activate the environment (macOS)
+
+```bash
+source .venv/bin/activate
+```
+
+### Step 4 — Install dependencies
+
+```bash
+python -m pip install -r requirements.txt
+```
+
+### Step 5 — Run tests
+
+```bash
 python -m unittest discover -s tests -v
 ```
 
-## Run without any download
+## 4. Running the Code
+
+Run all commands from the project root directory.
+
+### 4.1 Brute-force k-NN using synthetic data
 
 ```bash
 python run.py --n-base 10000 --n-queries 25 --k 10
 ```
 
-## Download real benchmark datasets
+Parameters:
 
-From https://github.com/erikbern/ann-benchmarks (dataset licenses and citations must be checked):
+- `--n-base`: Number of database vectors
+- `--n-queries`: Number of query vectors
+- `--k`: Number of nearest neighbors returned
+
+This experiment uses 10,000 synthetic vectors and 25 queries, retrieving the 10 nearest neighbors for each query.
+
+The output includes search performance measurements, index size, and build time.
+
+Results are saved to the `results/` directory.
+
+**Important:** Because `knn.py` is located in `algorithms/`, ensure `run.py` imports it as follows:
+
+```python
+from algorithms.knn import BruteForceKNN
+```
+
+### 4.2 Download benchmark datasets
+
+**SIFT1M — Euclidean distance**
 
 ```bash
 mkdir -p data
-curl -L https://ann-benchmarks.com/sift-128-euclidean.hdf5 -o data/sift-128-euclidean.hdf5
-curl -L https://ann-benchmarks.com/glove-100-angular.hdf5 -o data/glove-100-angular.hdf5
+
+curl -L https://ann-benchmarks.com/sift-128-euclidean.hdf5 \
+-o data/sift-128-euclidean.hdf5
 ```
 
-SIFT uses Euclidean distance:
+**GloVe-100 — Angular/Cosine distance**
 
 ```bash
-python run.py --dataset data/sift-128-euclidean.hdf5 --metric euclidean --n-base 10000 --n-queries 25 --k 10
+curl -L https://ann-benchmarks.com/glove-100-angular.hdf5 \
+-o data/glove-100-angular.hdf5
 ```
 
-GloVe uses cosine distance (normalization performed by `BruteForceKNN`):
+Dataset source: [ANN-Benchmarks](https://github.com/erikbern/ann-benchmarks)
+
+### 4.3 Run with SIFT1M
 
 ```bash
-python run.py --dataset data/glove-100-angular.hdf5 --metric cosine --n-base 10000 --n-queries 25 --k 10
+python run.py \
+  --dataset data/sift-128-euclidean.hdf5 \
+  --metric euclidean \
+  --n-base 10000 \
+  --n-queries 25 \
+  --k 10
 ```
 
-For full scale, change `--n-base` to `1000000` (SIFT) or `1183514` (GloVe), starting with a small query count. Full-scale exact search in NumPy is computationally expensive.
+### 4.4 Run with GloVe-100
 
-## Interface for future approximate methods
+```bash
+python run.py \
+  --dataset data/glove-100-angular.hdf5 \
+  --metric cosine \
+  --n-base 10000 \
+  --n-queries 25 \
+  --k 10
+```
 
-Aim for a common class interface:
+### 4.5 Test larger dataset sizes
 
-- `fit(vectors)` builds the index.
-- `query(queries, k=10)` returns `(indices, distances)` of shape `(n_queries, k)`.
+Change `--n-base` to:
 
-Use `evaluate.recall_at_k(exact_indices, approx_indices, k)` for the same test queries, base vectors, and metric. Exact result files produced by `run.py` work as ground truth **only for the dataset and size used in that run**.
+- `10000` — 10K vectors
+- `100000` — 100K vectors
+- `1000000` — 1M vectors
 
-The initial `index_bytes` counts NumPy vectors held by the baseline index; it is not peak process memory. To fairly compare methods later, track index-specific memory, peak RAM, build time, mean/p95 latency, QPS, recall@10, hardware, thread count, and parameter choices.
+Larger brute-force experiments can be slow and memory-intensive.
 
-## Academic integrity
+Currently, `run.py` supports the brute-force baseline. Other algorithms will be integrated in future development.
 
-The assignment instructs students to discuss code reuse with the instructor and disclose and credit any use of GenAI code. Review and adapt this starter, retain appropriate attribution, and follow your instructor's instructions before submitting.
+## 5. Evaluation Metrics
 
+All algorithms will be evaluated using the same database vectors, query vectors, distance metric, and value of k.
 
-cosc520_ann_baseline_starter/
-├── knn.py
-├── datasets.py
-├── evaluate.py
-├── run.py
-├── requirements.txt
-├── README.md
-├── MILESTONE1_NOTES.md
-└── tests/
-    └── test_knn.py
+| Metric | Description |
+|---|---|
+| Recall@k | Fraction of exact top-k neighbors retrieved |
+| Query latency (ms) | Average or percentile search time per query |
+| Queries per second (QPS) | Search throughput |
+| Build time (s) | Time required to construct an index |
+| Memory usage (MB) | Index memory consumption |
+| Scalability | Performance as dataset size increases |
+
+### Recall@k
+
+Recall@k is defined as:
+
+\[
+\text{Recall@k}=\frac{1}{Q}\sum_{i=1}^{Q}\frac{|A_i\cap G_i|}{k}
+\]
+
+Where:
+
+- \(Q\): Number of queries
+- \(A_i\): Retrieved nearest neighbors
+- \(G_i\): Exact nearest neighbors from brute-force k-NN
+
+Brute-force k-NN provides the ground truth for evaluating approximate algorithms.
+
+For dataset subsets, exact ground truth must be recomputed using the selected subset.
+
+## 6. Planned Experiments
+
+### Experiment 1 — Scalability
+
+Measure performance at three database sizes:
+
+- 10,000 vectors
+- 100,000 vectors
+- 1,000,000 vectors
+
+Compare query latency, build time, and index memory.
+
+### Experiment 2 — Recall vs Query Speed
+
+Compare Recall@10 against latency or queries per second.
+
+Analyze the trade-off between retrieval accuracy and search efficiency.
+
+### Experiment 3 — Parameter Sensitivity
+
+Investigate how algorithm parameters affect performance.
+
+| Algorithm | Parameters |
+|---|---|
+| LSH | Number of hash tables, number of hash bits |
+| IVF | Number of clusters, number of searched clusters |
+| HNSW | M, efConstruction, efSearch |
+
+### Experiment 4 — Dataset Comparison
+
+Compare algorithm behavior across:
+
+- SIFT1M: Euclidean distance, 128 dimensions
+- GloVe-100: Cosine distance, 100 dimensions
+
+## 7. Expected Visualizations
+
+Planned comparison plots include:
+
+1. Recall@10 vs query latency
+2. Recall@10 vs queries per second
+3. Dataset size vs query time
+4. Dataset size vs index memory
+5. Index build time by algorithm
+6. HNSW search-path visualization in 2D
+
+A Streamlit application is planned for interactive comparison of algorithm performance.
+
+## 8. Development Milestones
+
+| Milestone | Deadline | Goal |
+|---|---|---|
+| Milestone 1 | October 16, 2026 | Algorithm analysis and theoretical complexity |
+| Milestone 2 | November 6, 2026 | Half of the implementations completed |
+| Final | November 30, 2026 | Complete implementation, experiments, report, and demonstration |
+
+The first two milestones are optional checkpoints under the course project instructions.
+
+## 9. Development Status
+
+- [x] Initial project structure
+- [x] Brute-force k-NN starter implementation
+- [x] Basic evaluation utilities
+- [ ] Validate baseline with SIFT1M and GloVe
+- [ ] Implement LSH
+- [ ] Implement IVF
+- [ ] Implement HNSW
+- [ ] Complete parameter experiments
+- [ ] Generate comparison plots
+- [ ] Implement Streamlit UI
+- [ ] Complete final report and demonstration
+
+## 10. Implementation Notes
+
+The implemented ANN algorithms should follow a common interface:
+
+```python
+model = Algorithm(...)
+model.fit(database_vectors)
+indices, distances = model.query(query_vectors, k=10)
+```
+
+This design allows all algorithms to share the same benchmarking and evaluation pipeline.
+
+**Code reuse:** The initial brute-force baseline and project scaffolding were developed with GenAI assistance. All reused or AI-assisted code must be reviewed, tested, appropriately credited, and discussed with the instructor according to the course requirements.
+
+## 11. References
+
+- [ANN-Benchmarks](https://github.com/erikbern/ann-benchmarks)
+- [FAISS — Facebook AI Similarity Search](https://github.com/facebookresearch/faiss)
+- [DiskANN — Microsoft Research](https://github.com/microsoft/DiskANN)
+
+Additional academic references, dataset citations, and experimental results will be added as the project develops.
