@@ -1,26 +1,22 @@
 # COSC 520 — Approximate Nearest Neighbour Search for RAG
 
-**Team:** Mahdieh Sadat, Manami Yano
+**Team:** Manami Yano, Mahdieh Sadat
 
 ## 1. Project Overview
 
 This project investigates Approximate Nearest Neighbour (ANN) search algorithms for Retrieval-Augmented Generation (RAG) systems.
 
-RAG systems retrieve relevant information from large vector databases. However, exact nearest-neighbour search becomes computationally expensive as the number of vectors increases.
-
-We implement and compare several nearest-neighbour search algorithms in Python/NumPy, focusing on search accuracy, computational efficiency, scalability, and memory usage.
+RAG systems retrieve relevant information from large vector databases. However, exact nearest-neighbour search becomes computationally expensive as the number of vectors increases. Thus, we implement and compare several nearest-neighbour search algorithms in Python/NumPy, focusing on search accuracy, computational efficiency, scalability, and memory usage.
 
 ### Algorithms
 
 | Algorithm | Description | Role |
 |---|---|---|
 | Brute-force k-NN | Exhaustive exact nearest-neighbour search | Baseline |
-| LSH | Locality-Sensitive Hashing using random hyperplanes | Approximate |
-| IVF | Inverted File Index using k-means clustering | Approximate |
-| HNSW | Hierarchical Navigable Small World graph | Approximate |
-| Vamana / DiskANN | Graph-based ANN search optimized for large-scale retrieval | SOTA literature reference |
-
-The first four algorithms are planned for implementation from scratch. Vamana/DiskANN will be studied as an advanced reference approach.
+| LSH | Locality-Sensitive Hashing using random hyperplanes ||
+| IVF | Inverted File Index using k-means clustering | |
+| HNSW | Hierarchical Navigable Small World graph | |
+| Vamana (2019)| Graph construction with greedy search and robust pruning | SOTA |
 
 ## 2. Project Structure
 
@@ -56,18 +52,14 @@ project-code/
 └── .gitignore
 ```
 
-**Note:** This is the planned final structure. Some algorithms, experiment scripts, and visualization components are not yet implemented.
+**Note:** This is the planned final structure. Many algorithms, experiment scripts, and visualization components are not yet implemented.
 
 ## 3. Installation
-
 ### Step 1 — Clone the repository
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/COSC520-ANN-Search.git
-cd COSC520-ANN-Search
-```
-
-Replace `YOUR_USERNAME` with your GitHub username. If you already have the project locally, open that folder instead.
+git clone https://github.com/Manami108/COSC520-project.git
+cd COSC520-project
 
 ### Step 2 — Create a virtual environment
 
@@ -191,7 +183,6 @@ All algorithms will be evaluated using the same database vectors, query vectors,
 ### Recall@k
 
 Recall@k is defined as:
-
 \[
 \text{Recall@k}=\frac{1}{Q}\sum_{i=1}^{Q}\frac{|A_i\cap G_i|}{k}
 \]
@@ -221,7 +212,6 @@ Compare query latency, build time, and index memory.
 ### Experiment 2 — Recall vs Query Speed
 
 Compare Recall@10 against latency or queries per second.
-
 Analyze the trade-off between retrieval accuracy and search efficiency.
 
 ### Experiment 3 — Parameter Sensitivity
@@ -244,7 +234,6 @@ Compare algorithm behavior across:
 ## 7. Expected Visualizations
 
 Planned comparison plots include:
-
 1. Recall@10 vs query latency
 2. Recall@10 vs queries per second
 3. Dataset size vs query time
@@ -278,24 +267,10 @@ The first two milestones are optional checkpoints under the course project instr
 - [ ] Implement Streamlit UI
 - [ ] Complete final report and demonstration
 
-## 10. Implementation Notes
-
-The implemented ANN algorithms should follow a common interface:
-
-```python
-model = Algorithm(...)
-model.fit(database_vectors)
-indices, distances = model.query(query_vectors, k=10)
-```
-
-This design allows all algorithms to share the same benchmarking and evaluation pipeline.
-
-**Code reuse:** The initial brute-force baseline and project scaffolding were developed with GenAI assistance. All reused or AI-assisted code must be reviewed, tested, appropriately credited, and discussed with the instructor according to the course requirements.
-
-## 11. References
+## 10. References
 
 - [ANN-Benchmarks](https://github.com/erikbern/ann-benchmarks)
 - [FAISS — Facebook AI Similarity Search](https://github.com/facebookresearch/faiss)
-- [DiskANN — Microsoft Research](https://github.com/microsoft/DiskANN)
+- [DiskANN (Vamana) — Microsoft Research](https://github.com/microsoft/DiskANN)
 
 Additional academic references, dataset citations, and experimental results will be added as the project develops.
