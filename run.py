@@ -1,4 +1,4 @@
-"""Execute a reproducible baseline run. See README.md for examples."""
+
 import argparse
 import json
 from pathlib import Path
@@ -8,7 +8,7 @@ import numpy as np
 
 from datasets import load_hdf5
 from evaluate import benchmark_queries, recall_at_k
-from knn import BruteForceKNN
+from algorithms.knn import BruteForceKNN
 
 
 def main():

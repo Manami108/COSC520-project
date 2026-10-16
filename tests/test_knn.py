@@ -1,7 +1,7 @@
 import unittest
 import numpy as np
 
-from knn import BruteForceKNN
+from algorithms.knn import BruteForceKNN
 from evaluate import recall_at_k
 
 
@@ -22,8 +22,7 @@ class TestExactKNN(unittest.TestCase):
         query = rng.standard_normal((3, 7)).astype(np.float32)
         found, _ = BruteForceKNN(metric="cosine", chunk_size=11).fit(base).query(query, k=5)
         similarities = (query @ base.T) / (
-            np.linalg.norm(query, axis=1)[:, None] * np.linalg.norm(base, axis=1)[None, :]
-        )
+            np.linalg.norm(query, axis=1)[:, None] * np.linalg.norm(base, axis=1)[None, :])
         expected = np.argsort(-similarities, axis=1)[:, :5]
         np.testing.assert_array_equal(found, expected)
 
@@ -31,7 +30,6 @@ class TestExactKNN(unittest.TestCase):
         model = BruteForceKNN().fit(np.eye(3, dtype=np.float32))
         with self.assertRaises(ValueError):
             model.query(np.ones(3), k=4)
-
 
 if __name__ == "__main__":
     unittest.main()

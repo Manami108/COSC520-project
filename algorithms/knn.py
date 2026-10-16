@@ -1,29 +1,9 @@
-"""A clear, NumPy-only exact k-nearest-neighbor reference implementation.
-
-This code is an educational project starter: review, modify, test, and credit
-any AI-assisted code according to your course's reuse policy.
-"""
+# A clear, NumPy-only exact k-nearest-neighbor reference implementation.
 from __future__ import annotations
-
 import numpy as np
 
 
 class BruteForceKNN:
-    """Exact nearest neighbors with bounded-memory distance calculations.
-
-    The returned neighbors are exact for the chosen metric, apart from
-    floating-point rounding and arbitrary choices among exact ties.
-
-    Parameters
-    ----------
-    metric:
-        'euclidean' (L2) or 'cosine'. Cosine is implemented by normalizing
-        vectors before computing squared Euclidean distances.
-    chunk_size:
-        Maximum number of database vectors held in the temporary difference
-        matrix for one query. Tune to control the RAM/speed trade-off.
-    """
-
     def __init__(self, metric: str = "euclidean", chunk_size: int = 8192):
         if metric not in {"euclidean", "cosine"}:
             raise ValueError("metric must be 'euclidean' or 'cosine'")
@@ -51,7 +31,7 @@ class BruteForceKNN:
         return self
 
     def query(self, queries: np.ndarray, k: int = 10) -> tuple[np.ndarray, np.ndarray]:
-        """Return (indices, distances), both shape (n_queries, k)."""
+        # Return (indices, distances), both shape (n_queries, k)
         if self.vectors is None:
             raise RuntimeError("Call fit() before query()")
         if not 1 <= k <= len(self.vectors):
