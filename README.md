@@ -55,118 +55,62 @@ project-code/
 **Note:** This is the planned final structure. Many algorithms, experiment scripts, and visualization components are not yet implemented.
 
 ## 3. Installation
-### Step 1 — Clone the repository
+
+### Setup (macOS / Linux)
 
 ```bash
-git clone https://github.com/Manami108/COSC520-project.git
-cd COSC520-project
+git clone https://github.com/Manami108/COSC520-project.git  # Clone repository
+cd COSC520-project                                         # Open project directory
+python3 -m venv .venv                                      # Create virtual environment
+source .venv/bin/activate                                  # Activate environment
+python -m pip install -r requirements.txt                  # Install dependencies
 ```
 
-### Step 2 — Create a virtual environment
-
-```bash
-python3 -m venv .venv
-```
-
-### Step 3 — Activate the environment (macOS)
-
-```bash
-source .venv/bin/activate
-```
-
-### Step 4 — Install dependencies
-
-```bash
-python -m pip install -r requirements.txt
-```
-
-### Step 5 — Run tests
-
-```bash
-python -m unittest discover -s tests -v
-```
+For subsequent sessions, activate the environment using `source .venv/bin/activate`.
 
 ## 4. Running the Code
-
-Run all commands from the project root directory.
-
-### 4.1 Brute-force k-NN using synthetic data
+### 4.1 Download Datasets
 
 ```bash
+mkdir -p data  # Create dataset directory
+
+# SIFT1M (Euclidean)
+curl -L https://ann-benchmarks.com/sift-128-euclidean.hdf5 -o data/sift-128-euclidean.hdf5
+
+# GloVe-100 (Cosine)
+curl -L https://ann-benchmarks.com/glove-100-angular.hdf5 -o data/glove-100-angular.hdf5
+```
+
+Source: [ANN-Benchmarks](https://github.com/erikbern/ann-benchmarks)
+
+### 4.2 Run Tests and Experiments
+
+```bash
+# Unit tests
+python -m unittest discover -s tests -v
+
+# Brute-force k-NN with synthetic data
 python run.py --n-base 10000 --n-queries 25 --k 10
+
+# Brute-force k-NN with SIFT1M
+python run.py --dataset data/sift-128-euclidean.hdf5 --metric euclidean --n-base 10000 --n-queries 25 --k 10
+
+# Brute-force k-NN with GloVe-100
+python run.py --dataset data/glove-100-angular.hdf5 --metric cosine --n-base 10000 --n-queries 25 --k 10
 ```
 
-Parameters:
+### 4.3 Parameters and Results
 
-- `--n-base`: Number of database vectors
-- `--n-queries`: Number of query vectors
-- `--k`: Number of nearest neighbors returned
+| Parameter | Description |
+|---|---|
+| `--n-base` | Number of database vectors (10K, 100K, 1M) |
+| `--n-queries` | Number of queries |
+| `--k` | Number of nearest neighbors |
+| `--metric` | Distance metric (Euclidean or cosine) |
 
-This experiment uses 10,000 synthetic vectors and 25 queries, retrieving the 10 nearest neighbors for each query.
+Results are saved in `results/` as JSON performance summaries and NPZ exact-neighbor ground truth.
 
-The output includes search performance measurements, index size, and build time.
-
-Results are saved to the `results/` directory.
-
-**Important:** Because `knn.py` is located in `algorithms/`, ensure `run.py` imports it as follows:
-
-```python
-from algorithms.knn import BruteForceKNN
-```
-
-### 4.2 Download benchmark datasets
-
-**SIFT1M — Euclidean distance**
-
-```bash
-mkdir -p data
-
-curl -L https://ann-benchmarks.com/sift-128-euclidean.hdf5 \
--o data/sift-128-euclidean.hdf5
-```
-
-**GloVe-100 — Angular/Cosine distance**
-
-```bash
-curl -L https://ann-benchmarks.com/glove-100-angular.hdf5 \
--o data/glove-100-angular.hdf5
-```
-
-Dataset source: [ANN-Benchmarks](https://github.com/erikbern/ann-benchmarks)
-
-### 4.3 Run with SIFT1M
-
-```bash
-python run.py \
-  --dataset data/sift-128-euclidean.hdf5 \
-  --metric euclidean \
-  --n-base 10000 \
-  --n-queries 25 \
-  --k 10
-```
-
-### 4.4 Run with GloVe-100
-
-```bash
-python run.py \
-  --dataset data/glove-100-angular.hdf5 \
-  --metric cosine \
-  --n-base 10000 \
-  --n-queries 25 \
-  --k 10
-```
-
-### 4.5 Test larger dataset sizes
-
-Change `--n-base` to:
-
-- `10000` — 10K vectors
-- `100000` — 100K vectors
-- `1000000` — 1M vectors
-
-Larger brute-force experiments can be slow and memory-intensive.
-
-Currently, `run.py` supports the brute-force baseline. Other algorithms will be integrated in future development.
+**Note:** Currently, only brute-force k-NN is implemented. LSH, IVF, HNSW, and Vamana will be added later.
 
 ## 5. Evaluation Metrics
 
@@ -249,8 +193,8 @@ A Streamlit application is planned for interactive comparison of algorithm perfo
 | Milestone | Deadline | Goal |
 |---|---|---|
 | Milestone 1 | October 16, 2026 | Algorithm analysis and theoretical complexity |
-| Milestone 2 | November 6, 2026 | Half of the implementations completed |
-| Final | November 30, 2026 | Complete implementation, experiments, report, and demonstration |
+| Milestone 2 | November 6, 2026 | Most of the implementations completed |
+| Final | November 30, 2026 | Complete implementation, experiments, report, and presentation |
 
 The first two milestones are optional checkpoints under the course project instructions.
 
