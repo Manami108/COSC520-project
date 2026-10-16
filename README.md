@@ -205,14 +205,14 @@ The first two milestones are optional checkpoints under the course project instr
 - [x] Initial project structure
 - [x] Brute-force k-NN starter implementation
 - [x] Basic evaluation utilities
-- [ ] Validate baseline with SIFT1M and GloVe
+- [x] Validate baseline with SIFT1M and GloVe
 - [ ] Implement LSH
 - [ ] Implement IVF
 - [ ] Implement HNSW
+- [ ] Implement Vamana
 - [ ] Complete parameter experiments
 - [ ] Generate comparison plots
-- [ ] Implement Streamlit UI
-- [ ] Complete final report and demonstration
+- [ ] Write final report
 
 ## 10. References
 
