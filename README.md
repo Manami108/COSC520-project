@@ -198,7 +198,7 @@ A Streamlit application is planned for interactive comparison of algorithm perfo
 
 The first two milestones are optional checkpoints under the course project instructions.
 
-**Milestone 1 Documentation:** [View Algorithm Analysis Notes](docs/MILESTONE1_NOTES.md)
+**Milestone 1 Documentation:** [View Algorithm Analysis Notes](docs/MILESTONE1.md)
 
 ## 9. Development Status
 
