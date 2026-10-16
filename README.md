@@ -60,6 +60,7 @@ project-code/
 ```bash
 git clone https://github.com/Manami108/COSC520-project.git
 cd COSC520-project
+```
 
 ### Step 2 — Create a virtual environment
 
