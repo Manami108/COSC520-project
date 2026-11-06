@@ -7,13 +7,11 @@ from time import perf_counter
 import numpy as np
 
 from datasets import load_hdf5, infer_metric
-from evaluate import benchmark_queries, recall_at_k
-from ground_truth import get_ground_truth
+from evaluate import benchmark_queries, recall_at_k, get_ground_truth
 from algorithms.knn import BruteForceKNN
 from algorithms.lsh import LSHIndex
 from algorithms.ivf import IVFIndex
 from algorithms.hnsw import HNSWIndex
-
 
 def build_index(args, metric):
     if args.algorithm == "knn":
@@ -81,10 +79,19 @@ def main(argv=None):
     else:
         print("Preparing exact top-k ground truth (may be slow for large subsets)...", flush=True)
         ground_truth, truth_distances, truth_path, cached = get_ground_truth(
-            base, queries, metric=metric, k=args.k, dataset_name=dataset_name,
-            output_dir=args.output_dir / "ground_truth", chunk_size=args.chunk_size)
+        base, queries,
+        metric=metric,
+        k=args.k,
+        dataset_name=dataset_name,
+        output_dir=args.output_dir / "ground_truth",
+        chunk_size=args.chunk_size
+    )
+
     if args.ground_truth_only:
-        print(json.dumps({"ground_truth": str(truth_path), "cached": cached}, indent=2))
+        print(json.dumps({
+            "ground_truth": str(truth_path),
+            "cached": cached
+        }, indent=2))
         return
 
     model, parameters = build_index(args, metric)
