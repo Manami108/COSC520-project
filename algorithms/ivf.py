@@ -1,8 +1,6 @@
-"""Inverted file (IVF) index with NumPy k-means and exact candidate reranking."""
 from __future__ import annotations
 import numpy as np
 from .common import prepare_vectors, distances_to_query, nearest, output_distances
-
 
 class IVFIndex:
     def __init__(self, metric: str = "euclidean", n_clusters: int = 64,

@@ -1,11 +1,3 @@
-"""Educational, pure-Python/NumPy HNSW implementation.
-
-Builds nested proximity-graph layers using incremental insertion, randomized
-levels, best-first search, and diversity-based neighbor pruning. This is an
-in-memory reference implementation, not a performance substitute for hnswlib.
-
-Based on Malkov & Yashunin, IEEE TPAMI (2018/2020).
-"""
 from __future__ import annotations
 import heapq
 import math
@@ -13,7 +5,6 @@ import sys
 from collections.abc import Sequence
 import numpy as np
 from .common import prepare_vectors, distances_to_query, nearest, output_distances
-
 
 class HNSWIndex:
     def __init__(self, metric: str = "euclidean", M: int = 8,
@@ -45,7 +36,6 @@ class HNSWIndex:
 
     def _search_layer(self, q: np.ndarray, entry_points: Sequence[int],
                       ef: int, layer: int) -> list[tuple[float, int]]:
-        """Best-first graph search; result is (raw_distance, node) sorted ascending."""
         adjacency = self.layers[layer]
         visited: set[int] = set()
         candidates: list[tuple[float, int]] = []
@@ -76,7 +66,6 @@ class HNSWIndex:
 
     def _select_neighbors(self, q: np.ndarray, candidates: list[tuple[float, int]],
                           limit: int, *, exclude: int | None = None) -> list[int]:
-        """Diverse-neighbor heuristic, then fill unused slots from rejected points."""
         taken: list[int] = []
         rejected: list[int] = []
         seen = set()

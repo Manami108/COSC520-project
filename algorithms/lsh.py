@@ -1,17 +1,8 @@
-"""Random-hyperplane LSH (cosine) and p-stable LSH (Euclidean).
-
-Hashes candidate IDs and reranks them using the exact distance. If fewer than
-`fallback_candidates` are found in matching buckets, a deterministic random
-sample is added. This avoids returning fewer than k IDs without silently
-performing an exact full-data fallback.
-"""
 from __future__ import annotations
 from collections import defaultdict
 import sys
 import numpy as np
-
 from .common import prepare_vectors, distances_to_query, nearest, output_distances
-
 
 class LSHIndex:
     def __init__(self, metric: str = "cosine", n_tables: int = 8, n_hashes: int = 6,
