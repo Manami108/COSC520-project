@@ -1,13 +1,8 @@
-"""Parameter sensitivity sweeps using the common run.py benchmark pipeline.
 
-Example: python -m experiments.benchmark --algorithm hnsw --dry-run
-         python -m experiments.benchmark --algorithm hnsw --dataset data/...hdf5
-"""
 import argparse
 import itertools
 import subprocess
 import sys
-
 
 def configurations(algorithm: str):
     if algorithm == "hnsw":
@@ -19,7 +14,6 @@ def configurations(algorithm: str):
     else:
         for tables, hashes in itertools.product((4, 8, 16), (4, 6)):
             yield ["--lsh-tables", str(tables), "--lsh-hashes", str(hashes)]
-
 
 def main():
     parser = argparse.ArgumentParser()
@@ -40,7 +34,6 @@ def main():
         print(" ".join(cmd), flush=True)
         if not args.dry_run:
             subprocess.run(cmd, check=True)
-
 
 if __name__ == "__main__":
     main()
