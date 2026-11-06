@@ -24,20 +24,24 @@ RAG systems retrieve relevant information from large vector databases. However, 
 project-code/
 ├── algorithms/
 │   ├── __init__.py
+│   ├── common.py
 │   ├── knn.py
 │   ├── lsh.py
 │   ├── ivf.py
-│   └── hnsw.py
+│   ├── hnsw.py
+│   └── vamana.py             # Planned
 │
 ├── tests/
 │   ├── test_knn.py
 │   ├── test_lsh.py
 │   ├── test_ivf.py
-│   └── test_hnsw.py
+│   ├── test_hnsw.py
+│   └── test_pipeline.py
 │
 ├── experiments/
+│   ├── __init__.py
 │   ├── benchmark.py
-│   └── plots.py
+│   └── plots.py              # Planned
 │
 ├── data/
 ├── results/
@@ -46,13 +50,12 @@ project-code/
 ├── datasets.py
 ├── evaluate.py
 ├── run.py
-├── app.py
 ├── requirements.txt
 ├── README.md
 └── .gitignore
 ```
 
-**Note:** This is the planned final structure. Many algorithms, experiment scripts, and visualization components are not yet implemented.
+**Note:** This is the planned final structure. Vamana and visualization components are not yet implemented.
 
 ## 3. Installation
 
@@ -72,16 +75,13 @@ For subsequent sessions, activate the environment using `source .venv/bin/activa
 ### 4.1 Download Datasets
 
 ```bash
-mkdir -p data  # Create dataset directory
+# Download both SIFT1M (Euclidean) and GloVe-100 (Cosine)
+python datasets.py --dataset both
 
-# SIFT1M (Euclidean)
-curl -L https://ann-benchmarks.com/sift-128-euclidean.hdf5 -o data/sift-128-euclidean.hdf5
-
-# GloVe-100 (Cosine)
-curl -L https://ann-benchmarks.com/glove-100-angular.hdf5 -o data/glove-100-angular.hdf5
+# Or download only one dataset
+python datasets.py --dataset sift
+python datasets.py --dataset glove
 ```
-
-Source: [ANN-Benchmarks](https://github.com/erikbern/ann-benchmarks)
 
 ### 4.2 Run Tests and Experiments
 
@@ -93,10 +93,19 @@ python -m unittest discover -s tests -v
 python run.py --n-base 10000 --n-queries 25 --k 10
 
 # Brute-force k-NN with SIFT1M
-python run.py --dataset data/sift-128-euclidean.hdf5 --metric euclidean --n-base 10000 --n-queries 25 --k 10
+python run.py --algorithm knn --dataset data/sift-128-euclidean.hdf5 --metric euclidean --n-base 10000 --n-queries 25 --k 10
 
 # Brute-force k-NN with GloVe-100
-python run.py --dataset data/glove-100-angular.hdf5 --metric cosine --n-base 10000 --n-queries 25 --k 10
+python run.py --algorithm knn --dataset data/glove-100-angular.hdf5 --metric cosine --n-base 10000 --n-queries 25 --k 10
+
+# LSH with SIFT1M
+python run.py --algorithm lsh --dataset data/sift-128-euclidean.hdf5 --n-base 10000 --n-queries 25 --k 10
+
+# IVF with SIFT1M
+python run.py --algorithm ivf --dataset data/sift-128-euclidean.hdf5 --n-base 10000 --n-queries 25 --k 10
+
+# HNSW with SIFT1M (smaller parameters to begin with)
+python run.py --algorithm hnsw --dataset data/sift-128-euclidean.hdf5 --n-base 10000 --n-queries 25 --k 10 --M 4 --ef-construction 16 --ef-search 30
 ```
 
 ### 4.3 Parameters and Results
@@ -108,9 +117,9 @@ python run.py --dataset data/glove-100-angular.hdf5 --metric cosine --n-base 100
 | `--k` | Number of nearest neighbors |
 | `--metric` | Distance metric (Euclidean or cosine) |
 
-Results are saved in `results/` as JSON performance summaries and NPZ exact-neighbor ground truth.
+Results are saved in `results/` as JSON performance summaries and NPZ exact-neighbor ground truth. The ground truth is generated using brute-force k-NN for each subset and reused when available.
 
-**Note:** Currently, only brute-force k-NN is implemented. LSH, IVF, HNSW, and Vamana will be added later.
+**Note:** Currently, Brute-force k-NN, LSH, IVF, and HNSW are implemented. Vamana will be added later.
 
 ## 5. Evaluation Metrics
 
@@ -165,9 +174,10 @@ Investigate how algorithm parameters affect performance.
 
 | Algorithm | Parameters |
 |---|---|
-| LSH | Number of hash tables, number of hash bits |
+| LSH | Number of hash tables, number of hash bits, bucket width |
 | IVF | Number of clusters, number of searched clusters |
 | HNSW | M, efConstruction, efSearch |
+| Vamana (planned) | Graph degree, search list size, pruning parameter |
 
 ### Experiment 4 — Dataset Comparison
 
@@ -206,9 +216,9 @@ The first two milestones are optional checkpoints under the course project instr
 - [x] Brute-force k-NN starter implementation
 - [x] Basic evaluation utilities
 - [x] Validate baseline with SIFT1M and GloVe
-- [ ] Implement LSH
-- [ ] Implement IVF
-- [ ] Implement HNSW
+- [x] Implement LSH
+- [x] Implement IVF
+- [x] Implement HNSW
 - [ ] Implement Vamana
 - [ ] Complete parameter experiments
 - [ ] Generate comparison plots
