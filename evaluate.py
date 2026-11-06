@@ -36,9 +36,10 @@ def benchmark_queries(index, queries: np.ndarray, k: int, *, warmup: int = 2):
 def _fingerprint(base: np.ndarray, queries: np.ndarray) -> str:
     h = sha256()
     for a in (base, queries):
+        a = np.ascontiguousarray(a)
         h.update(str(a.shape).encode())
-        h.update(np.ascontiguousarray(a[:min(3, len(a))]).tobytes())
-        h.update(np.ascontiguousarray(a[-min(3, len(a)):]).tobytes())
+        h.update(str(a.dtype).encode())
+        h.update(memoryview(a).cast("B"))
     return h.hexdigest()[:16]
 
 def ground_truth_file(output_dir: Path, name: str, n_base: int, n_queries: int,
