@@ -8,6 +8,11 @@ This project investigates Approximate Nearest Neighbour (ANN) search algorithms 
 
 RAG systems retrieve relevant information from large vector databases. However, exact nearest-neighbour search becomes computationally expensive as the number of vectors increases. Thus, we implement and compare several nearest-neighbour search algorithms in Python/NumPy, focusing on search accuracy, computational efficiency, scalability, and memory usage.
 
+**Milestone 1 Documentation:** [View Algorithm Analysis Notes](docs/MILESTONE1.md)
+
+**Milestone 2 Documentation:** [View Implementation and Initial Experiment Notes](docs/MILESTONE2.md)
+
+
 ### Algorithms
 
 | Algorithm | Description | Role |
@@ -209,6 +214,7 @@ A Streamlit application is planned for interactive comparison of algorithm perfo
 The first two milestones are optional checkpoints under the course project instructions.
 
 **Milestone 1 Documentation:** [View Algorithm Analysis Notes](docs/MILESTONE1.md)
+
 **Milestone 2 Documentation:** [View Implementation and Initial Experiment Notes](docs/MILESTONE2.md)
 
 ## 9. Development Status
