@@ -7,8 +7,7 @@ from pathlib import Path
 import h5py
 import numpy as np
 from datasets import load_hdf5, infer_metric
-from evaluate import recall_at_k
-from ground_truth import get_ground_truth
+from evaluate import recall_at_k, get_ground_truth
 
 class TestPipeline(unittest.TestCase):
     def test_subset_ground_truth_cached(self):
