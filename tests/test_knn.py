@@ -1,9 +1,7 @@
 import unittest
 import numpy as np
-
 from algorithms.knn import BruteForceKNN
 from evaluate import recall_at_k
-
 
 class TestExactKNN(unittest.TestCase):
     def test_euclidean_matches_independent_reference(self):
