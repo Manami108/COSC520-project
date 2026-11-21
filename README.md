@@ -73,6 +73,25 @@ source .venv/bin/activate                                  # Activate environmen
 python -m pip install -r requirements.txt                  # Install dependencies
 ```
 
+### Setup (Windows PowerShell)
+
+```powershell
+git clone https://github.com/Manami108/COSC520-project.git
+cd COSC520-project
+
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+
+python -m pip install -r requirements.txt
+```
+
+If PowerShell prevents virtual environment activation, use:
+
+```powershell
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+.\.venv\Scripts\Activate.ps1
+```
+
 For subsequent sessions, activate the environment using `source .venv/bin/activate`.
 
 ## 4. Running the Code
@@ -125,7 +144,23 @@ Results are saved in `results/` as JSON performance summaries and NPZ exact-neig
 
 ## 5. Evaluation Metrics
 
-All algorithms will be evaluated using the same database vectors, query vectors, distance metric, and value of k.
+
+### Evaluation Methodology
+
+All algorithms are evaluated using identical database vectors, query vectors, distance metrics, and values of k.
+
+- **Ground truth:** Exact nearest neighbors are computed using brute-force k-NN.
+- **Accuracy:** Recall@10 measures the fraction of exact top-10 neighbors retrieved.
+- **Query performance:** Mean, median, and 95th-percentile query latency are recorded.
+- **Timing reliability:** Query measurements are repeated to reduce timing variability.
+- **Construction cost:** Index build time is measured separately from query time.
+- **Memory:** Estimated index memory is reported in MiB. These estimates do not necessarily represent actual process memory.
+- **Reproducibility:** Random seeds and experimental parameters are recorded.
+
+For subset experiments, exact ground truth is recomputed using only the selected database vectors. Official dataset ground truth is not reused for smaller subsets.
+
+Results are compared separately for SIFT1M (Euclidean distance) and GloVe-100 (cosine distance).
+
 
 | Metric | Description |
 |---|---|
@@ -153,52 +188,67 @@ Brute-force k-NN provides the ground truth for evaluating approximate algorithms
 
 For dataset subsets, exact ground truth must be recomputed using the selected subset.
 
+
 ## 6. Experiments
 
 ### Experiment 1 — Scalability
 
-Measure performance at three database sizes:
+Evaluate how database size affects query latency, index construction time, and memory usage.
 
+Initial database sizes:
+- 1,000 vectors
+- 5,000 vectors
 - 10,000 vectors
-- 100,000 vectors
-- 1,000,000 vectors
 
-Compare query latency, build time, and index memory.
+Larger subsets (50K, 100K, and beyond) may be evaluated depending on computational feasibility.
 
-### Experiment 2 — Recall vs Query Speed
+For scalability comparisons, algorithm configurations should remain fixed across dataset sizes.
 
-Compare Recall@10 against latency or queries per second.
-Analyze the trade-off between retrieval accuracy and search efficiency.
+### Experiment 2 — Recall vs Query Latency
+
+Evaluate the trade-off between retrieval accuracy and query performance.
+
+- Compare Recall@10 against mean query latency.
+- Investigate Pareto-optimal configurations.
+- Identify configurations achieving high recall with low latency.
 
 ### Experiment 3 — Parameter Sensitivity
 
-Investigate how algorithm parameters affect performance.
+Investigate the influence of algorithm-specific parameters.
 
 | Algorithm | Parameters |
 |---|---|
-| LSH | Number of hash tables, number of hash bits, bucket width |
-| IVF | Number of clusters, number of searched clusters |
+| LSH | Hash tables, hash functions, bucket width |
+| IVF | Number of clusters, nprobe |
 | HNSW | M, efConstruction, efSearch |
-| Vamana (planned) | Graph degree, search list size, pruning parameter |
+| Vamana | Graph degree, search-list size, pruning parameter |
 
 ### Experiment 4 — Dataset Comparison
 
-Compare algorithm behavior across:
+Compare the algorithms across two datasets:
 
-- SIFT1M: Euclidean distance, 128 dimensions
-- GloVe-100: Cosine distance, 100 dimensions
+- **SIFT1M:** 128-dimensional SIFT descriptors using Euclidean distance.
+- **GloVe-100:** 100-dimensional word embeddings using cosine distance.
 
-## 7. Expected Visualizations
+This experiment investigates how algorithm performance differs across vector distributions and distance metrics.
 
-Planned comparison plots include:
-1. Recall@10 vs query latency
-2. Recall@10 vs queries per second
-3. Dataset size vs query time
-4. Dataset size vs index memory
-5. Index build time by algorithm
-6. HNSW search-path visualization in 2D
+## 7. Visualizations
 
-A Streamlit application is planned for interactive comparison of algorithm performance.
+The project uses Matplotlib to visualize experimental results.
+
+| Visualization | Purpose |
+|---|---|
+| Recall@10 vs query latency | Accuracy–efficiency trade-off |
+| Recall@10 vs QPS | Search throughput comparison |
+| Database size vs query latency | Query scalability |
+| Database size vs build time | Index construction scalability |
+| Database size vs index memory | Memory scalability |
+| Parameter sensitivity plots | Effects of algorithm configurations |
+
+Recall–latency comparisons use scatter points and Pareto frontiers to avoid misleading connections between unrelated parameter configurations.
+
+Scalability plots require measurements from multiple database sizes.
+
 
 ## 8. Development Milestones
 
