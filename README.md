@@ -225,14 +225,32 @@ A Streamlit application is planned for interactive comparison of algorithm perfo
 - [x] Implement IVF
 - [x] Implement HNSW
 - [x] Implement Vamana
-- [ ] Complete parameter experiments
-- [ ] Generate comparison plots
+- [x] Complete parameter experiments
+- [x] Generate comparison plots
 - [ ] Write final report
+
 
 ## 10. References
 
+### Research Papers
+
+- **LSH (Cosine Similarity):** Charikar, M. S. (2002). [Similarity Estimation Techniques from Rounding Algorithms](https://doi.org/10.1145/509907.509965). *STOC 2002*.
+- **LSH (Euclidean Distance):** Datar, M., Immorlica, N., Indyk, P., & Mirrokni, V. S. (2004). [Locality-Sensitive Hashing Scheme Based on p-Stable Distributions](https://doi.org/10.1145/997817.997857). *SCG 2004*.
+- **IVF and Quantization:** Jégou, H., Douze, M., & Schmid, C. (2011). [Product Quantization for Nearest Neighbor Search](https://doi.org/10.1109/TPAMI.2010.57). *IEEE TPAMI, 33*(1), 117–128.
+- **HNSW:** Malkov, Y. A., & Yashunin, D. A. (2020). [Efficient and Robust Approximate Nearest Neighbor Search Using Hierarchical Navigable Small World Graphs](https://doi.org/10.1109/TPAMI.2018.2889473). *IEEE TPAMI, 42*(4), 824–836.
+- **Vamana (DiskANN):** Subramanya, S. J., Devvrit, Kadekodi, R., Krishnaswamy, R., & Simhadri, H. V. (2019). [DiskANN: Fast Accurate Billion-point Nearest Neighbor Search on a Single Node](https://arxiv.org/abs/1908.01410). *NeurIPS 2019*.
+- **ANN Benchmarking:** Aumüller, M., Bernhardsson, E., & Faithfull, A. (2020). [ANN-Benchmarks: A Benchmarking Tool for Approximate Nearest Neighbor Algorithms](https://doi.org/10.1016/j.is.2019.02.006). *Information Systems, 87*, 101374.
+- **Retrieval-Augmented Generation:** Lewis, P., et al. (2020). [Retrieval-Augmented Generation for Knowledge-Intensive NLP Tasks](https://arxiv.org/abs/2005.11401). *NeurIPS 2020*.
+
+### Datasets
+
+- **SIFT1M:** Jégou, H., Douze, M., & Schmid, C. (2011). [Product Quantization for Nearest Neighbor Search](https://doi.org/10.1109/TPAMI.2010.57). *IEEE TPAMI*.
+- **GloVe-100:** Pennington, J., Socher, R., & Manning, C. D. (2014). [GloVe: Global Vectors for Word Representation](https://aclanthology.org/D14-1162/). *EMNLP 2014*.
+- **ANN-Benchmarks Datasets:** [SIFT-128 Euclidean and GloVe-100 Angular](https://github.com/erikbern/ann-benchmarks).
+
+### Software and Implementations
+
 - [ANN-Benchmarks](https://github.com/erikbern/ann-benchmarks)
 - [FAISS — Facebook AI Similarity Search](https://github.com/facebookresearch/faiss)
-- [DiskANN (Vamana) — Microsoft Research](https://github.com/microsoft/DiskANN)
+- [DiskANN — Microsoft Research](https://github.com/microsoft/DiskANN)
 
-Additional academic references, dataset citations, and experimental results will be added as the project develops.
