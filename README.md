@@ -12,6 +12,7 @@ RAG systems retrieve relevant information from large vector databases. However, 
 
 **Milestone 2 Documentation:** [View Implementation and Initial Experiment Notes](docs/MILESTONE2.md)
 
+**Final Documentation:** TBA
 
 ### Algorithms
 
@@ -34,7 +35,7 @@ project-code/
 │   ├── lsh.py
 │   ├── ivf.py
 │   ├── hnsw.py
-│   └── vamana.py             # Planned
+│   └── vamana.py             
 │
 ├── tests/
 │   ├── test_knn.py
@@ -46,7 +47,7 @@ project-code/
 ├── experiments/
 │   ├── __init__.py
 │   ├── benchmark.py
-│   └── plots.py              # Planned
+│   └── plots.py         
 │
 ├── data/
 ├── results/
@@ -59,8 +60,6 @@ project-code/
 ├── README.md
 └── .gitignore
 ```
-
-**Note:** This is the planned final structure. Vamana and visualization components are not yet implemented.
 
 ## 3. Installation
 
@@ -124,8 +123,6 @@ python run.py --algorithm hnsw --dataset data/sift-128-euclidean.hdf5 --n-base 1
 
 Results are saved in `results/` as JSON performance summaries and NPZ exact-neighbor ground truth. The ground truth is generated using brute-force k-NN for each subset and reused when available.
 
-**Note:** Currently, Brute-force k-NN, LSH, IVF, and HNSW are implemented. Vamana will be added later.
-
 ## 5. Evaluation Metrics
 
 All algorithms will be evaluated using the same database vectors, query vectors, distance metric, and value of k.
@@ -156,7 +153,7 @@ Brute-force k-NN provides the ground truth for evaluating approximate algorithms
 
 For dataset subsets, exact ground truth must be recomputed using the selected subset.
 
-## 6. Planned Experiments
+## 6. Experiments
 
 ### Experiment 1 — Scalability
 
@@ -209,13 +206,14 @@ A Streamlit application is planned for interactive comparison of algorithm perfo
 |---|---|---|
 | Milestone 1 | October 16, 2026 | Algorithm analysis and theoretical complexity |
 | Milestone 2 | November 6, 2026 | Most of the implementations completed |
-| Final | November 30, 2026 | Complete implementation, experiments, report, and presentation |
-
-The first two milestones are optional checkpoints under the course project instructions.
+| Milestone 3 | November 30, 2026 | Complete implementation, experiments,and report|
+| Presentation | December 3, 2026 | Complete presentation |
 
 **Milestone 1 Documentation:** [View Algorithm Analysis Notes](docs/MILESTONE1.md)
 
 **Milestone 2 Documentation:** [View Implementation and Initial Experiment Notes](docs/MILESTONE2.md)
+
+**Milestone 3 Documentation:** TBA
 
 ## 9. Development Status
 
@@ -226,7 +224,7 @@ The first two milestones are optional checkpoints under the course project instr
 - [x] Implement LSH
 - [x] Implement IVF
 - [x] Implement HNSW
-- [ ] Implement Vamana
+- [x] Implement Vamana
 - [ ] Complete parameter experiments
 - [ ] Generate comparison plots
 - [ ] Write final report
