@@ -12,6 +12,7 @@ from algorithms.knn import BruteForceKNN
 from algorithms.lsh import LSHIndex
 from algorithms.ivf import IVFIndex
 from algorithms.hnsw import HNSWIndex
+from algorithms.vamana import VamanaIndex
 
 def build_index(args, metric):
     if args.algorithm == "knn":
@@ -25,6 +26,11 @@ def build_index(args, metric):
         kw = dict(metric=metric, n_clusters=args.n_clusters, nprobe=args.nprobe,
                   train_size=args.train_size, max_iter=args.kmeans_iter, seed=args.seed)
         return IVFIndex(**kw), kw
+    if args.algorithm == "vamana":
+        kw = dict(metric=metric, R=args.vamana_R, L=args.vamana_L,
+                  alpha=args.vamana_alpha, search_L=args.vamana_search_L,
+                  passes=args.vamana_passes, seed=args.seed)
+        return VamanaIndex(**kw), kw
     kw = dict(metric=metric, M=args.M, ef_construction=args.ef_construction,
               ef_search=args.ef_search, seed=args.seed)
     return HNSWIndex(**kw), kw
@@ -32,7 +38,7 @@ def build_index(args, metric):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--algorithm", choices=["knn", "lsh", "ivf", "hnsw"], default="knn")
+    parser.add_argument("--algorithm", choices=["knn", "lsh", "ivf", "hnsw", "vamana"], default="knn")
     parser.add_argument("--dataset", type=Path, help="ANN-Benchmarks HDF5; omit for synthetic")
     parser.add_argument("--n-base", type=int, default=10_000)
     parser.add_argument("--n-queries", type=int, default=25)
@@ -56,6 +62,12 @@ def main(argv=None):
     parser.add_argument("--M", type=int, default=8)
     parser.add_argument("--ef-construction", type=int, default=40)
     parser.add_argument("--ef-search", type=int, default=40)
+    # Vamana (educational, in-memory)
+    parser.add_argument("--vamana-R", type=int, default=16)
+    parser.add_argument("--vamana-L", type=int, default=40)
+    parser.add_argument("--vamana-alpha", type=float, default=1.2)
+    parser.add_argument("--vamana-search-L", type=int, default=40)
+    parser.add_argument("--vamana-passes", type=int, default=2)
     args = parser.parse_args(argv)
     if args.n_base < 1 or args.n_queries < 1 or args.k < 1 or args.k > args.n_base:
         parser.error("n-base, n-queries, k must be positive, with k <= n-base")
