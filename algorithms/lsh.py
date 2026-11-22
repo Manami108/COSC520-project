@@ -1,12 +1,8 @@
-
 from __future__ import annotations
-
 from collections import defaultdict
 import sys
 import numpy as np
-
 from .common import prepare_vectors, distances_to_query, nearest, output_distances
-
 
 class LSHIndex:
     def __init__(self, metric="cosine", n_tables=8, n_hashes=4,
@@ -31,7 +27,6 @@ class LSHIndex:
         self.last_fallback_flags = []
 
     def _hash_rows(self, rows, table_id):
-        # Same Gaussian p-stable hash for both distance metrics.
         projection = rows @ self._projections[table_id].T
         normalized = projection / self._scales[table_id]
         codes = np.floor((normalized + self._offsets[table_id]) / self.bucket_width)
@@ -40,27 +35,45 @@ class LSHIndex:
     def fit(self, vectors):
         self.vectors = prepare_vectors(vectors, self.metric)
         n, d = self.vectors.shape
-        rng = np.random.default_rng(self.seed)
-        self._projections = rng.normal(size=(self.n_tables, self.n_hashes, d)).astype(np.float32)
-        # Estimate projection scale with a fixed random sample, using exactly the
-        # same procedure for SIFT and GloVe. Avoid zero variance on tiny datasets.
-        sample_ids = rng.choice(n, size=min(n, 2048), replace=False)
+
+        # Distinct, deterministic RNG streams for shared scale sample,
+        # per-table projections/offsets, and shared fallback IDs. The table
+        # RNG depends on its index, *not* the total number of tables.
+        sample_rng = np.random.default_rng(np.random.SeedSequence([self.seed, 0]))
+        sample_ids = sample_rng.choice(n, size=min(n, 2048), replace=False)
         sample = self.vectors[sample_ids]
-        self._scales = np.empty((self.n_tables, self.n_hashes), dtype=np.float32)
-        for t in range(self.n_tables):
-            projected = sample @ self._projections[t].T
-            self._scales[t] = np.maximum(np.std(projected, axis=0), 1e-6)
-        self._offsets = rng.uniform(0, self.bucket_width,
-                                    size=(self.n_tables, self.n_hashes)).astype(np.float32)
+
+        self._projections = np.empty(
+            (self.n_tables, self.n_hashes, d), dtype=np.float32)
+        self._scales = np.empty(
+            (self.n_tables, self.n_hashes), dtype=np.float32)
+        self._offsets = np.empty(
+            (self.n_tables, self.n_hashes), dtype=np.float32)
         self._tables = []
+
         for t in range(self.n_tables):
+            rng_table = np.random.default_rng(
+                np.random.SeedSequence([self.seed, 1, t]))
+            projection = rng_table.normal(size=(self.n_hashes, d)).astype(np.float32)
+            self._projections[t] = projection
+            self._scales[t] = np.maximum(
+                np.std(sample @ projection.T, axis=0), 1e-6)
+            self._offsets[t] = rng_table.uniform(
+                0, self.bucket_width, size=self.n_hashes).astype(np.float32)
+
             buckets = defaultdict(list)
             for start in range(0, n, 4096):
-                for j, key in enumerate(self._hash_rows(self.vectors[start:start+4096], t), start):
+                for j, key in enumerate(
+                    self._hash_rows(self.vectors[start:start + 4096], t), start
+                ):
                     buckets[key].append(j)
             self._tables.append(dict(buckets))
+
+        fallback_rng = np.random.default_rng(
+            np.random.SeedSequence([self.seed, 2]))
         count = min(n, max(self.fallback_candidates, 1))
-        self._fallback_ids = rng.choice(n, size=count, replace=False).astype(np.int64)
+        self._fallback_ids = fallback_rng.choice(
+            n, size=count, replace=False).astype(np.int64)
         self.last_candidate_counts = []
         self.last_fallback_flags = []
         return self

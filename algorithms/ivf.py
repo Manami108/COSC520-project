@@ -1,3 +1,4 @@
+
 from __future__ import annotations
 import numpy as np
 from .common import prepare_vectors, distances_to_query, nearest, output_distances
@@ -17,6 +18,8 @@ class IVFIndex:
         self.vectors = None
         self.centroids = None
         self.lists = None
+        self.last_probe_counts = []
+        self.last_candidate_counts = []
 
     def _assign(self, points: np.ndarray) -> np.ndarray:
         centroids = self.centroids
@@ -63,6 +66,8 @@ class IVFIndex:
             for offset, label in enumerate(labels):
                 inv_lists[int(label)].append(start + offset)
         self.lists = [np.asarray(bucket, dtype=np.int64) for bucket in inv_lists]
+        self.last_probe_counts = []
+        self.last_candidate_counts = []
         return self
 
     @property
@@ -80,6 +85,7 @@ class IVFIndex:
         if queries.shape[1] != self.vectors.shape[1]:
             raise ValueError("Query dimensions differ")
         found, distances = [], []
+        probe_counts, candidate_counts = [], []
         for q in queries:
             cdist = distances_to_query(self.centroids, q, self.metric)
             centroid_order = np.argsort(cdist, kind="stable")
@@ -89,6 +95,7 @@ class IVFIndex:
                 group = self.lists[int(center_id)]
                 selected.append(group)
                 count += len(group)
+                # Include more clusters if the nominal nprobe does not supply k vectors.
                 if j + 1 >= self.nprobe and count >= k:
                     break
             ids = np.concatenate(selected)
@@ -96,4 +103,8 @@ class IVFIndex:
             nearest_ids, nearest_ds = nearest(ds, ids, k)
             found.append(nearest_ids)
             distances.append(output_distances(nearest_ds, self.metric))
+            probe_counts.append(len(selected))
+            candidate_counts.append(count)
+        self.last_probe_counts = probe_counts
+        self.last_candidate_counts = candidate_counts
         return np.stack(found), np.stack(distances)

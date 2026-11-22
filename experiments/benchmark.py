@@ -1,8 +1,4 @@
-"""ANN hyperparameter tuning + fixed-configuration scalability benchmark.
 
-Run as: python -m experiments.benchmark --dataset data/sift-128-euclidean.hdf5
-No changes to the algorithm classes are required.
-"""
 from __future__ import annotations
 
 import argparse
@@ -10,17 +6,20 @@ import csv
 import inspect
 import itertools
 import json
+import os
 import platform
+import sys
 from pathlib import Path
 from time import perf_counter
 
 import numpy as np
-from datasets import infer_metric, load_hdf5
-from evaluate import get_ground_truth, recall_at_k
+
+from algorithms.hnsw import HNSWIndex
+from algorithms.ivf import IVFIndex
 from algorithms.knn import BruteForceKNN
 from algorithms.lsh import LSHIndex
-from algorithms.ivf import IVFIndex
-from algorithms.hnsw import HNSWIndex
+from datasets import infer_metric, load_hdf5
+from evaluate import benchmark_queries, get_ground_truth, recall_at_k
 
 try:
     from algorithms.vamana import VamanaIndex
@@ -31,82 +30,75 @@ INDEXES = {"knn": BruteForceKNN, "lsh": LSHIndex, "ivf": IVFIndex, "hnsw": HNSWI
 if VamanaIndex is not None:
     INDEXES["vamana"] = VamanaIndex
 
-# Small, sensible default spaces. These are candidate values, not optimal values.
+# Candidate values are deliberately modest for NumPy/Python implementations.
+# LSH uses Gaussian p-stable bucket hashing on normalized vectors for cosine.
 SPACES = {
-    "lsh": {"n_tables": [4, 8, 16, 24], "n_hashes": [2, 4, 6], "bucket_width": [0.25, 0.5, 1.0, 2.0, 4.0]},
+    "lsh": {"n_tables": [4, 8, 16, 24], "n_hashes": [2, 4, 6],
+            "bucket_width": [0.25, 0.5, 1.0, 2.0, 4.0]},
     "ivf": {"n_clusters": [16, 32, 64, 128], "nprobe": [1, 2, 4, 8, 16, 32]},
-    "hnsw": {"M": [4, 8, 12], "ef_construction": [40, 80], "ef_search": [10, 20, 40, 80]},
-    "vamana": {"R": [8, 16, 24], "L": [20, 40, 80], "alpha": [1., 1.2]},
+    "hnsw": {"M": [4, 8, 12], "ef_construction": [40, 80],
+             "ef_search": [10, 20, 40, 80]},
+    # Search width is independently tunable from construction width.
+    "vamana": {"R": [8, 16, 24], "L": [20, 40, 80],
+               "alpha": [1.0, 1.2], "search_L": [20, 40, 80]},
 }
 
 
 def configs_for(algorithm: str, method: str, trials: int, seed: int, metric: str):
-    space = SPACES[algorithm].copy()
+    del metric  # Same experimental search space for both metrics.
+    if algorithm == "knn":
+        return [{}]
+    space = SPACES[algorithm]
     keys = tuple(space)
-    combinations = [dict(zip(keys, v)) for v in itertools.product(*(space[k] for k in keys))]
+    configs = [dict(zip(keys, values)) for values in itertools.product(*(space[k] for k in keys))]
     if algorithm == "ivf":
-        combinations = [c for c in combinations if c["nprobe"] <= c["n_clusters"]]
+        configs = [c for c in configs if c["nprobe"] <= c["n_clusters"]]
+    if algorithm == "hnsw":
+        configs = [c for c in configs if c["ef_construction"] >= c["M"]]
     if algorithm == "vamana":
-        combinations = [c for c in combinations if c["L"] >= c["R"]]
+        configs = [c for c in configs if c["L"] >= c["R"]]
     if method == "random":
         rng = np.random.default_rng(seed)
-        ids = rng.choice(len(combinations), size=min(trials, len(combinations)), replace=False)
-        combinations = [combinations[int(i)] for i in ids]
-    return combinations
+        selected = rng.choice(len(configs), size=min(trials, len(configs)), replace=False)
+        configs = [configs[int(i)] for i in selected]
+    return configs
 
 
 def make_model(algorithm: str, metric: str, params: dict, seed: int, k: int):
+    if algorithm not in INDEXES:
+        raise ValueError(f"Unknown algorithm: {algorithm}")
     cls = INDEXES[algorithm]
-    kwargs = dict(metric=metric, seed=seed, **params) if algorithm != "knn" else dict(metric=metric)
-    signature = inspect.signature(cls)
-    accepted = signature.parameters
+    kwargs = {"metric": metric} if algorithm == "knn" else {"metric": metric, "seed": seed, **params}
+    accepted = inspect.signature(cls).parameters
+    # Preserve compatibility with alternative teaching Vamana constructor names.
     if algorithm == "vamana":
-        # Different teaching implementations use different constructor names.
-        aliases = {"R": ("R", "degree", "max_degree"), "L": ("L", "search_list_size", "L_search", "search_L"),
-                   "alpha": ("alpha", "pruning_alpha")}
+        aliases = {
+            "R": ("R", "degree", "max_degree"),
+            "L": ("L", "search_list_size", "L_search"),
+            "alpha": ("alpha", "pruning_alpha"),
+            "search_L": ("search_L", "query_search_L"),
+        }
         translated = {"metric": metric, "seed": seed}
         for key, value in params.items():
-            options = aliases.get(key, (key,))
-            match = next((x for x in options if x in accepted), None)
+            match = next((name for name in aliases.get(key, (key,)) if name in accepted), None)
             if match is None:
-                raise ValueError(f"Vamana constructor does not support {key}: {signature}. Adjust SPACES['vamana'] to match.")
+                raise ValueError(f"Vamana constructor does not accept {key}: {inspect.signature(cls)}")
             translated[match] = value
-        # Couple the query beam width to L so changing L affects search, not only build.
-        if "search_L" in accepted:
-            translated["search_L"] = params["L"]
         kwargs = translated
-    kwargs = {k: v for k, v in kwargs.items() if k in accepted}
+    unknown = set(kwargs) - set(accepted)
+    if unknown:
+        raise ValueError(f"Unsupported parameters for {algorithm}: {sorted(unknown)}")
     if algorithm == "hnsw":
         kwargs["ef_search"] = max(k, kwargs.get("ef_search", k))
+    if algorithm == "vamana" and "search_L" in kwargs:
+        kwargs["search_L"] = max(k, kwargs["search_L"])
     return cls(**kwargs)
 
 
-def measure(model, queries, truth, k, repeats):
-    # One warmup, followed by repeated timed passes over the same queries.
-    model.query(queries[:1], k=k)
-    times = []
-    predictions = None
-    for _ in range(repeats):
-        start = perf_counter()
-        ids, _ = model.query(queries, k=k)
-        elapsed = perf_counter() - start
-        times.append(elapsed * 1000 / len(queries))
-        if predictions is None:
-            predictions = ids
-    times = np.asarray(times, dtype=float)
-    result = {
-        "recall_at_k": recall_at_k(truth, predictions, k),
-        "mean_latency_ms": float(np.mean(times)),
-        "median_latency_ms": float(np.median(times)),
-        "latency_std_ms": float(np.std(times, ddof=1)) if len(times) > 1 else 0.,
-        "queries_per_second": float(1000. / np.mean(times)),
-    }
-    # Diagnostic metrics for LSH (not included in timed passes).
-    if hasattr(model, "last_candidate_counts") and model.last_candidate_counts:
-        result["mean_candidates"] = float(np.mean(model.last_candidate_counts))
-        result["candidate_fraction"] = float(np.mean(model.last_candidate_counts) / len(model.vectors))
-        result["fallback_rate"] = float(np.mean(model.last_fallback_flags))
-    return result
+def measure(model, queries, truth, k: int, repeats: int):
+    found, _, metrics = benchmark_queries(model, queries, k, warmup=5, repeats=repeats)
+    metrics["recall_at_k"] = recall_at_k(truth, found, k)
+    return metrics
 
 
 def evaluate(algorithm, base, queries, truth, metric, k, params, seed, repeats):
@@ -116,13 +108,18 @@ def evaluate(algorithm, base, queries, truth, metric, k, params, seed, repeats):
     build_s = perf_counter() - start
     metrics = measure(model, queries, truth, k, repeats)
     return {
-        "algorithm": algorithm, "parameters": params, "build_seconds": build_s,
+        "algorithm": algorithm,
+        "parameters": dict(params),
+        "build_seconds": float(build_s),
         "index_memory_mb_estimate": float(model.index_bytes / (1024 ** 2)),
+        "memory_note": "Implementation-specific estimate, not measured process RSS",
         **metrics,
     }
 
 
 def select_best(rows, target):
+    if not rows:
+        raise ValueError("No candidate configurations to select")
     feasible = [r for r in rows if r["recall_at_k"] >= target]
     if feasible:
         return min(feasible, key=lambda r: (r["median_latency_ms"], -r["recall_at_k"])), True
@@ -130,14 +127,55 @@ def select_best(rows, target):
 
 
 def write_csv(path, rows):
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
     if not rows:
         return
     keys = sorted(set().union(*(r.keys() for r in rows)))
     with path.open("w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=keys)
         writer.writeheader()
-        for r in rows:
-            writer.writerow({k: json.dumps(v, sort_keys=True) if isinstance(v, (dict, list)) else v for k, v in r.items()})
+        for row in rows:
+            writer.writerow({k: json.dumps(v, sort_keys=True) if isinstance(v, (list, dict)) else v
+                             for k, v in row.items()})
+
+
+def summarize_scaling(rows):
+    from collections import defaultdict
+    grouped = defaultdict(list)
+    for row in rows:
+        grouped[(row["algorithm"], int(row["n_base"]))].append(row)
+    metrics = ("recall_at_k", "mean_latency_ms", "median_latency_ms",
+               "p95_latency_ms", "queries_per_second", "build_seconds",
+               "index_memory_mb_estimate")
+    summary = []
+    for (algorithm, size), group in sorted(grouped.items()):
+        result = {"algorithm": algorithm, "n_base": size,
+                  "dataset": group[0]["dataset"], "metric": group[0]["metric"],
+                  "target_recall": group[0]["target_recall"],
+                  "n_index_seeds": len(group),
+                  "validation_target_met": all(r["target_met_on_validation"] for r in group),
+                  "test_target_met_all_seeds": all(r["test_target_met"] for r in group),
+                  "test_target_meeting_fraction": sum(r["test_target_met"] for r in group)/len(group),
+                  "parameters": group[0]["parameters"]}
+        for metric in metrics:
+            values = np.asarray([row[metric] for row in group], dtype=float)
+            result[metric + "_mean"] = float(values.mean())
+            result[metric + "_sd"] = float(values.std(ddof=1)) if len(values) > 1 else 0.0
+        summary.append(result)
+    exact_by_size = {item["n_base"]: item for item in summary if item["algorithm"] == "knn"}
+    for item in summary:
+        baseline = exact_by_size.get(item["n_base"])
+        item["speedup_vs_exact_median"] = (
+            baseline["median_latency_ms_mean"] / item["median_latency_ms_mean"]
+            if baseline and item["median_latency_ms_mean"] > 0 else None
+        )
+    return summary
+
+
+def label_for_target(target: float) -> str:
+    # A few decimal digits preserve user-supplied thresholds without collisions.
+    return "r" + str(round(target * 1000)).zfill(3)
 
 
 def main(argv=None):
@@ -150,86 +188,164 @@ def main(argv=None):
     parser.add_argument("--test-queries", type=int, default=500)
     parser.add_argument("--k", type=int, default=10)
     parser.add_argument("--method", choices=["random", "grid"], default="random")
-    parser.add_argument("--trials", type=int, default=16)
-    parser.add_argument("--target-recall", type=float, default=0.90)
+    parser.add_argument("--trials", type=int, default=12)
+    parser.add_argument("--target-recall", type=float, default=0.90,
+                        help="Single recall threshold (retained for backwards compatibility).")
+    parser.add_argument("--target-recalls", type=float, nargs="+", default=None,
+                        help="Multiple thresholds; tune only once and reuse results.")
     parser.add_argument("--repeats", type=int, default=3)
-    parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--seed", type=int, default=42,
+                        help="Seed for candidate selection, query split, and tuning builds.")
+    parser.add_argument("--seeds", type=int, nargs="+", default=[42],
+                        help="Independent index-build seeds for final measurements.")
     parser.add_argument("--output-dir", type=Path, default=Path("results/optimized"))
+    parser.add_argument("--no-knn", action="store_true", help="Skip the exact timing baseline.")
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args(argv)
-    if args.repeats < 1 or args.trials < 1 or args.k < 1 or args.tune_queries < 1 or args.test_queries < 1:
-        parser.error("k, trials, repeats and query counts must be positive")
-    if not 0 <= args.target_recall <= 1:
-        parser.error("target-recall must be between 0 and 1")
+
+    targets = sorted(set(args.target_recalls if args.target_recalls is not None
+                         else [args.target_recall]))
+    if not targets or any(not 0 <= t <= 1 for t in targets):
+        parser.error("Each recall target must be between 0 and 1")
+    if len({label_for_target(t) for t in targets}) < len(targets):
+        parser.error("Recall thresholds are too close to distinguish in output names")
+    if (args.repeats < 1 or args.trials < 1 or args.k < 1 or args.tune_queries < 1
+            or args.test_queries < 1 or not args.seeds):
+        parser.error("k, trials, repeats, query counts, and number of seeds must be positive")
+    if len(set(args.seeds)) != len(args.seeds):
+        parser.error("--seeds must contain unique values")
     if any(n < args.k for n in args.sizes + [args.tune_size]):
-        parser.error("all database sizes must be at least k")
+        parser.error("Database sizes must be >= k")
     metric = infer_metric(args.dataset)
-    # Exact KNN remains available explicitly, but --algorithm all compares ANN methods only.
-    algorithms = [a for a in INDEXES if a != "knn"] if args.algorithm == "all" else [args.algorithm]
-    max_n = max(args.sizes + [args.tune_size])
-    n_queries = args.tune_queries + args.test_queries
+    algorithms = ([a for a in INDEXES if a != "knn"] if args.algorithm == "all"
+                  else ([] if args.algorithm == "knn" else [args.algorithm]))
+    include_knn = not args.no_knn or args.algorithm == "knn"
     if args.dry_run:
         for algorithm in algorithms:
-            n = 1 if algorithm == "knn" else len(configs_for(algorithm, args.method, args.trials, args.seed, metric))
-            print(f"{algorithm}: {n} tuning configurations, {len(args.sizes)} final sizes")
+            print(f"{algorithm}: {len(configs_for(algorithm, args.method, args.trials, args.seed, metric))} "
+                  f"tuning configurations; {len(args.sizes)} sizes; {len(args.seeds)} seeds")
+        print(f"Recall targets: {targets}, include exact baseline: {include_knn}")
         return
-    base, queries, _ = load_hdf5(args.dataset, n_base=max_n, n_queries=n_queries)
-    validation = queries[:args.tune_queries]
-    test = queries[args.tune_queries:]
-    output = args.output_dir / args.dataset.stem
-    output.mkdir(parents=True, exist_ok=True)
-    config_rows, scale_rows, choices = [], [], {}
-    # Exact ground truth is recomputed for every database subset.
-    tune_truth, _, _, _ = get_ground_truth(base[:args.tune_size], validation, metric=metric,
-        k=args.k, dataset_name=args.dataset.stem + "_validation", output_dir=output / "truth")
-    test_truth_by_size = {}
+
+    max_n = max(args.sizes + [args.tune_size])
+    requested_queries = args.tune_queries + args.test_queries
+    base, queries, _ = load_hdf5(args.dataset, n_base=max_n, n_queries=requested_queries)
+    # Deterministic disjoint validation/test queries (not tuned on test answers).
+    shuffled_ids = np.random.default_rng(args.seed).permutation(len(queries))
+    validation = queries[shuffled_ids[:args.tune_queries]]
+    test = queries[shuffled_ids[args.tune_queries:]]
+
+    # Truth is calculated outside all timed index-building/search measurements.
+    truth_dir = args.output_dir / "truth" / args.dataset.stem
+    validation_truth, _, _, _ = get_ground_truth(
+        base[:args.tune_size], validation, metric=metric, k=args.k,
+        dataset_name=args.dataset.stem + "_validation", output_dir=truth_dir)
+    test_truth = {}
     for size in sorted(set(args.sizes)):
-        test_truth_by_size[size], _, _, _ = get_ground_truth(base[:size], test, metric=metric,
-            k=args.k, dataset_name=args.dataset.stem + "_test", output_dir=output / "truth")
+        test_truth[size], _, _, _ = get_ground_truth(
+            base[:size], test, metric=metric, k=args.k,
+            dataset_name=args.dataset.stem + "_test", output_dir=truth_dir)
+
+    tuning_rows = []
+    candidates_by_algorithm = {}
     for algorithm in algorithms:
-        candidates = [{}] if algorithm == "knn" else configs_for(algorithm, args.method, args.trials, args.seed, metric)
+        configs = configs_for(algorithm, args.method, args.trials, args.seed, metric)
         if algorithm == "ivf":
-            candidates = [c for c in candidates if c["n_clusters"] <= args.tune_size]
-        print(f"\nTuning {algorithm}: {len(candidates)} configurations on {args.tune_size} vectors", flush=True)
-        valid_rows = []
-        for i, params in enumerate(candidates, 1):
+            configs = [c for c in configs if c["n_clusters"] <= args.tune_size]
+        print(f"\nTuning {algorithm}: {len(configs)} configurations", flush=True)
+        successful = []
+        for i, params in enumerate(configs, 1):
             try:
-                result = evaluate(algorithm, base[:args.tune_size], validation, tune_truth, metric,
-                                  args.k, params, args.seed, args.repeats)
+                row = evaluate(algorithm, base[:args.tune_size], validation,
+                               validation_truth, metric, args.k, params, args.seed, args.repeats)
             except (ValueError, TypeError) as exc:
-                print(f"  skip configuration {i}: {exc}", flush=True)
+                print(f"  skip {i}: {exc}", flush=True)
                 continue
-            result.update(dataset=args.dataset.stem, metric=metric, stage="tuning", n_base=args.tune_size,
-                          n_queries=len(validation), k=args.k, seed=args.seed)
-            config_rows.append(result)
-            valid_rows.append(result)
-            print(f"  {i}/{len(candidates)} recall={result['recall_at_k']:.3f} median_ms={result['median_latency_ms']:.4f}", flush=True)
-        if not valid_rows:
-            print(f"Skipping {algorithm}: no valid configurations")
-            continue
-        best, met = select_best(valid_rows, args.target_recall)
-        choices[algorithm] = {"parameters": best["parameters"], "validation_recall": best["recall_at_k"],
-                              "validation_latency_ms": best["median_latency_ms"], "target_met": met}
-        print(f"Selected {algorithm}: {choices[algorithm]}", flush=True)
+            row.update(dataset=args.dataset.stem, metric=metric, stage="tuning",
+                       n_base=args.tune_size, n_queries=len(validation), k=args.k,
+                       seed=args.seed)
+            successful.append(row)
+            tuning_rows.append(row)
+            print(f"  {i}/{len(configs)} recall={row['recall_at_k']:.3f} "
+                  f"median={row['median_latency_ms']:.4f} ms", flush=True)
+        candidates_by_algorithm[algorithm] = successful
+
+    # Reuse final index measurements whenever a configuration is selected by
+    # multiple recall thresholds. This avoids repeated expensive builds.
+    cache = {}
+    baseline_rows = {}
+    if include_knn:
         for size in sorted(set(args.sizes)):
-            result = evaluate(algorithm, base[:size], test, test_truth_by_size[size], metric,
-                              args.k, best["parameters"], args.seed, args.repeats)
-            result.update(dataset=args.dataset.stem, metric=metric, stage="test", n_base=size,
-                          n_queries=len(test), k=args.k, seed=args.seed, target_met_on_validation=met)
-            scale_rows.append(result)
-            print(f"  test n={size} recall={result['recall_at_k']:.3f} median_ms={result['median_latency_ms']:.4f}", flush=True)
-    write_csv(output / "tuning.csv", config_rows)
-    write_csv(output / "scaling.csv", scale_rows)
-    metadata = {"lsh_hash_family": "Gaussian p-stable bucket hashing on Euclidean vectors (unit-normalized for cosine)",
-                "knn_role": "Exact ground-truth baseline, excluded from ANN comparison by default",
-                "dataset": str(args.dataset), "metric": metric, "tune_size": args.tune_size,
-                "tune_queries": args.tune_queries, "test_queries": args.test_queries,
-                "sizes": sorted(set(args.sizes)), "selection": "minimum validation median latency subject to recall threshold; otherwise highest recall",
-                "target_recall": args.target_recall, "method": args.method, "trials": args.trials,
-                "seed": args.seed, "repeats": args.repeats, "python": platform.python_version(),
-                "numpy": np.__version__, "choices": choices}
-    (output / "metadata.json").write_text(json.dumps(metadata, indent=2), encoding="utf-8")
-    print(f"\nSaved tuning, scaling, and metadata files to {output}")
+            row = evaluate("knn", base[:size], test, test_truth[size], metric,
+                           args.k, {}, args.seed, args.repeats)
+            row.update(dataset=args.dataset.stem, metric=metric, stage="test",
+                       n_base=size, n_queries=len(test), k=args.k, seed=args.seed,
+                       target_met_on_validation=True)
+            baseline_rows[size] = row
+            print(f"Exact baseline n={size} median={row['median_latency_ms']:.4f} ms", flush=True)
+
+    for target in targets:
+        selected = {}
+        rows = [dict(baseline_rows[s], target_recall=target, test_target_met=True)
+                for s in sorted(baseline_rows)]
+        for algorithm in algorithms:
+            valid = candidates_by_algorithm[algorithm]
+            if not valid:
+                print(f"WARNING: no valid configurations for {algorithm}", file=sys.stderr)
+                continue
+            best, meets_validation = select_best(valid, target)
+            params = best["parameters"]
+            selected[algorithm] = {
+                "parameters": params,
+                "validation_recall": best["recall_at_k"],
+                "validation_latency_ms": best["median_latency_ms"],
+                "validation_target_met": meets_validation,
+            }
+            for size in sorted(set(args.sizes)):
+                for seed in args.seeds:
+                    cache_key = (algorithm, size, seed, json.dumps(params, sort_keys=True))
+                    if cache_key not in cache:
+                        row = evaluate(algorithm, base[:size], test, test_truth[size],
+                                       metric, args.k, params, seed, args.repeats)
+                        row.update(dataset=args.dataset.stem, metric=metric, stage="test",
+                                   n_base=size, n_queries=len(test), k=args.k, seed=seed)
+                        cache[cache_key] = row
+                    measured = cache[cache_key]
+                    rows.append(dict(measured, target_recall=target,
+                                     target_met_on_validation=meets_validation,
+                                     test_target_met=measured["recall_at_k"] >= target))
+
+        root = (args.output_dir / label_for_target(target) if len(targets) > 1
+                else args.output_dir)
+        folder = root / args.dataset.stem
+        write_csv(folder / "tuning.csv", tuning_rows)
+        write_csv(folder / "scaling.csv", rows)
+        write_csv(folder / "summary.csv", summarize_scaling(rows))
+        metadata = {
+            "dataset": str(args.dataset), "metric": metric, "k": args.k,
+            "tune_size": args.tune_size, "tune_queries": args.tune_queries,
+            "test_queries": args.test_queries, "query_split": "shuffled, disjoint",
+            "query_split_seed": args.seed, "sizes": sorted(set(args.sizes)),
+            "target_recall": target, "all_targets": targets,
+            "selection": "min validation median per-query latency at target recall; otherwise highest recall",
+            "selection_seed": args.seed, "final_seeds": args.seeds,
+            "repeats_per_query": args.repeats,
+            "method": args.method, "trials": args.trials,
+            "knn_timed_baseline": include_knn,
+            "latency_definition": "median per-query latency; independent repeated single-query calls",
+            "qps_definition": "reciprocal of mean single-query latency (sequential)",
+            "memory_definition": "algorithm-specific estimate including vectors, not measured RSS",
+            "lsh_hash_family": "Gaussian p-stable bucket hashing; cosine operates on unit-normalized vectors",
+            "python": platform.python_version(), "numpy": np.__version__,
+            "platform": platform.platform(), "machine": platform.machine(),
+            "processor": platform.processor(), "cpu_count": os.cpu_count(),
+            "thread_env": {key: os.environ.get(key) for key in
+                           ("OPENBLAS_NUM_THREADS", "OMP_NUM_THREADS", "MKL_NUM_THREADS")},
+            "selected": selected,
+        }
+        folder.mkdir(parents=True, exist_ok=True)
+        (folder / "metadata.json").write_text(json.dumps(metadata, indent=2), encoding="utf-8")
+        print(f"Saved threshold {target:.3f} to {folder}", flush=True)
 
 
 if __name__ == "__main__":

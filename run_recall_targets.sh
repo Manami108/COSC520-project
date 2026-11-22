@@ -1,33 +1,32 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Execute from the root of COSC520-project using: bash run_recall_targets.sh
-# Requires the updated experiments.benchmark supporting the flags below.
+# From the repository root: bash run_recall_targets.sh
+# Tuning occurs ONCE per dataset, for all targets. Final tests use 3 seeds.
+THREADS="${ANN_THREADS:-1}"
+export OPENBLAS_NUM_THREADS="$THREADS"
+export OMP_NUM_THREADS="$THREADS"
+export MKL_NUM_THREADS="$THREADS"
 
 for dataset in sift-128-euclidean glove-100-angular; do
-  for target in 0.80 0.90 0.95; do
-    label="r${target/./}"
-    out="results/recall_targets/${label}"
-    echo "=== ${dataset} | target recall ${target} ==="
-    python -m experiments.benchmark \
-      --algorithm all \
-      --dataset "data/${dataset}.hdf5" \
-      --sizes 1000 5000 10000 25000 \
-      --tune-size 10000 \
-      --tune-queries 100 \
-      --test-queries 500 \
-      --method random \
-      --trials 30 \
-      --target-recall "${target}" \
-      --repeats 3 \
-      --seed 42 \
-      --output-dir "${out}"
-  done
+  echo "=== ${dataset}: tune once, evaluate recall 80/90/95% ==="
+  python -m experiments.benchmark \
+    --algorithm all \
+    --dataset "data/${dataset}.hdf5" \
+    --sizes 1000 5000 10000 25000 \
+    --tune-size 10000 \
+    --tune-queries 100 \
+    --test-queries 500 \
+    --method random \
+    --trials 12 \
+    --target-recalls 0.80 0.90 0.95 \
+    --repeats 3 \
+    --seed 42 \
+    --seeds 42 123 456 \
+    --output-dir results/recall_targets
 done
 
-# Your plotting module should support --input-dir as in the previous package.
-for target in 0.80 0.90 0.95; do
-  label="r${target/./}"
+for label in r800 r900 r950; do
   python -m experiments.plots --input-dir "results/recall_targets/${label}"
 done
 
