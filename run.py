@@ -1,4 +1,4 @@
-"""Benchmark exact k-NN, LSH, IVF, or HNSW on the same data and ground truth."""
+
 import argparse
 import json
 from hashlib import sha256
@@ -68,7 +68,10 @@ def main(argv=None):
     parser.add_argument("--vamana-alpha", type=float, default=1.2)
     parser.add_argument("--vamana-search-L", type=int, default=40)
     parser.add_argument("--vamana-passes", type=int, default=2)
+    parser.add_argument("--timing-repeats", type=int, default=3)
     args = parser.parse_args(argv)
+    if args.timing_repeats < 1:
+        parser.error("timing-repeats must be >= 1")
     if args.n_base < 1 or args.n_queries < 1 or args.k < 1 or args.k > args.n_base:
         parser.error("n-base, n-queries, k must be positive, with k <= n-base")
 
@@ -110,12 +113,12 @@ def main(argv=None):
     start = perf_counter()
     model.fit(base)
     build_seconds = perf_counter() - start
-    neighbors, distances, search_metrics = benchmark_queries(model, queries, args.k)
+    neighbors, distances, search_metrics = benchmark_queries(model, queries, args.k, repeats=args.timing_repeats)
     stats = {
         "algorithm": args.algorithm, "dataset": dataset_name, "metric": metric,
         "n_base": len(base), "n_queries": len(queries), "dimensions": base.shape[1],
-        "k": args.k, "parameters": parameters,
-        "build_seconds": build_seconds,
+        "k": args.k, "parameters": parameters, "seed": args.seed,
+        "build_seconds": build_seconds, "timing_repeats": args.timing_repeats,
         "index_bytes_estimate": model.index_bytes,
         "index_memory_mb_estimate": model.index_bytes / (1024 * 1024),
         "recall_at_k": recall_at_k(ground_truth, neighbors, args.k),

@@ -1,88 +1,91 @@
-"""Create reproducible comparison figures from run.py JSON result files."""
-from __future__ import annotations
+"""Plots for optimized benchmark output (tuning.csv and scaling.csv)."""
 import argparse
-import json
+import csv
 from pathlib import Path
-import matplotlib
-matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 
-def plot_results(input_dir: Path, output_dir: Path):
-    records = []
-    for path in sorted(input_dir.glob("*.json")):
-        try:
-            row = json.loads(path.read_text())
-        except (json.JSONDecodeError, OSError):
-            continue
-        needed = ("algorithm", "dataset", "n_base", "recall_at_k", "mean_latency_ms")
-        if all(key in row for key in needed):
-            records.append(row)
-    if not records:
-        raise ValueError(f"No benchmark JSON files found in {input_dir}")
-    output_dir.mkdir(parents=True, exist_ok=True)
-    algorithms = sorted({r['algorithm'] for r in records})
-    markers = ['o', 's', '^', 'D', 'v', 'P', 'X']
-    metrics = [
-        ('mean_latency_ms', 'Mean query latency (ms)', 'recall_vs_latency'),
-        ('queries_per_second', 'Queries per second', 'recall_vs_qps'),
-    ]
-    datasets = sorted({r['dataset'] for r in records})
-    for dataset in datasets:
-        rows = [r for r in records if r['dataset'] == dataset]
-        # Separate database sizes to prevent misleading cross-scale curves.
-        for size in sorted({r['n_base'] for r in rows}):
-            selected = [r for r in rows if r['n_base'] == size]
-            for ykey, ylabel, filename in metrics:
-                fig, ax = plt.subplots(figsize=(8, 5.5))
-                for i, alg in enumerate(algorithms):
-                    subset = sorted((r for r in selected if r['algorithm'] == alg and ykey in r),
-                                    key=lambda r: r['recall_at_k'])
-                    if subset:
-                        ax.plot([r['recall_at_k'] for r in subset],
-                                [r[ykey] for r in subset], marker=markers[i % len(markers)],
-                                label=alg.upper(), linewidth=1.5)
-                ax.set(xlabel='Recall@k', ylabel=ylabel,
-                       title=f'{dataset} — {size:,} vectors')
-                ax.grid(True, alpha=.25)
-                ax.legend()
-                fig.tight_layout()
-                fig.savefig(output_dir / f'{filename}_{dataset}_n{size}.png', dpi=200)
-                plt.close(fig)
-        # For scalability, multiple parameter configurations are summarized by
-        # choosing highest recall at each (algorithm, n_base), not average performance.
-        for key, ylabel, filename in [
-            ('mean_latency_ms', 'Mean query latency (ms)', 'scaling_latency'),
-            ('index_memory_mb_estimate', 'Estimated index memory (MiB)', 'scaling_memory'),
-            ('build_seconds', 'Index build time (s)', 'scaling_build')]:
-            fig, ax = plt.subplots(figsize=(8, 5.5))
-            for i, alg in enumerate(algorithms):
-                points = {}
-                for r in rows:
-                    if r['algorithm'] == alg and key in r:
-                        old = points.get(r['n_base'])
-                        if old is None or r['recall_at_k'] > old['recall_at_k']:
-                            points[r['n_base']] = r
-                if points:
-                    sizes = sorted(points)
-                    ax.plot(sizes, [points[s][key] for s in sizes],
-                            marker=markers[i % len(markers)], label=alg.upper())
-            ax.set(xlabel='Number of database vectors', ylabel=ylabel,
-                   title=f'{dataset} — highest-recall configuration per size')
-            ax.grid(True, alpha=.25)
-            ax.legend()
-            fig.tight_layout()
-            fig.savefig(output_dir / f'{filename}_{dataset}.png', dpi=200)
-            plt.close(fig)
-    print(f'Created figures in {output_dir} from {len(records)} benchmark runs')
+def read_rows(path):
+    with path.open(newline="", encoding="utf-8") as f:
+        rows = list(csv.DictReader(f))
+    for row in rows:
+        for k in ("n_base", "recall_at_k", "median_latency_ms", "index_memory_mb_estimate", "build_seconds"):
+            if k in row and row[k] != "":
+                row[k] = float(row[k])
+    return rows
+
+
+def frontier(rows):
+    # Lower latency and higher recall are better; show nondominated configs only.
+    return sorted([r for r in rows if not any(
+        (s["recall_at_k"] >= r["recall_at_k"] and s["median_latency_ms"] <= r["median_latency_ms"])
+        and (s["recall_at_k"] > r["recall_at_k"] or s["median_latency_ms"] < r["median_latency_ms"])
+        for s in rows)], key=lambda r: r["recall_at_k"])
+
+
+def plot_dataset(folder):
+    tuning_path, scaling_path = folder / "tuning.csv", folder / "scaling.csv"
+    if not tuning_path.exists() or not scaling_path.exists():
+        return
+    tuning, scaling = read_rows(tuning_path), read_rows(scaling_path)
+    out = folder / "plots"
+    out.mkdir(exist_ok=True)
+    # KNN stays in the exact ground truth but is not an ANN competitor.
+    algorithms = sorted(set(r["algorithm"] for r in tuning if r["algorithm"] != "knn"))
+    for zoom in (False, True):
+        fig, ax = plt.subplots(figsize=(8, 5.2))
+        for a in algorithms:
+            rows = [r for r in tuning if r["algorithm"] == a]
+            ax.scatter([r["recall_at_k"] for r in rows], [r["median_latency_ms"] for r in rows],
+                       label=a.upper(), alpha=.65, s=28)
+            line = frontier(rows)
+            if len(line) > 1:
+                ax.plot([r["recall_at_k"] for r in line], [r["median_latency_ms"] for r in line], alpha=.7)
+        if zoom:
+            ax.set_xlim(.8, 1.01)
+        else:
+            ax.set_xlim(-.02, 1.02)
+        ax.set_xlabel("Validation Recall@10")
+        ax.set_ylabel("Median query latency (ms)")
+        ax.set_title(f"{folder.name}: tuning trade-off" + (" (high-recall zoom)" if zoom else ""))
+        ax.grid(alpha=.25)
+        ax.legend(title="Algorithm")
+        fig.tight_layout()
+        fig.savefig(out / ("tuning_zoom.png" if zoom else "tuning_recall_latency.png"), dpi=180)
+        plt.close(fig)
+    for field, ylabel, filename in [
+        ("median_latency_ms", "Median query latency (ms)", "scaling_latency.png"),
+        ("recall_at_k", "Test Recall@10", "scaling_recall.png"),
+        ("build_seconds", "Index build time (s)", "scaling_build.png"),
+        ("index_memory_mb_estimate", "Estimated index memory (MiB)", "scaling_memory.png"),
+    ]:
+        fig, ax = plt.subplots(figsize=(8, 5.2))
+        for a in sorted(set(r["algorithm"] for r in scaling if r["algorithm"] != "knn")):
+            rows = sorted((r for r in scaling if r["algorithm"] == a), key=lambda r: r["n_base"])
+            ax.plot([r["n_base"] for r in rows], [r[field] for r in rows], marker="o", label=a.upper())
+        ax.set_xlabel("Database vectors")
+        ax.set_ylabel(ylabel)
+        ax.set_title(f"{folder.name}: {ylabel} (fixed tuning-selected parameters)")
+        ax.grid(alpha=.25)
+        ax.legend()
+        if field == "build_seconds":
+            ax.set_yscale("symlog", linthresh=.01)
+        if field == "recall_at_k":
+            ax.set_ylim(0, 1.02)
+        fig.tight_layout()
+        fig.savefig(out / filename, dpi=180)
+        plt.close(fig)
+    print("Saved figures to", out)
 
 
 def main():
-    p = argparse.ArgumentParser()
-    p.add_argument('--input-dir', type=Path, default=Path('results'))
-    p.add_argument('--output-dir', type=Path, default=Path('results/plots'))
-    args = p.parse_args()
-    plot_results(args.input_dir, args.output_dir)
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--input-dir", type=Path, default=Path("results/optimized"))
+    args = parser.parse_args()
+    for folder in sorted(args.input_dir.iterdir()):
+        if folder.is_dir():
+            plot_dataset(folder)
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     main()

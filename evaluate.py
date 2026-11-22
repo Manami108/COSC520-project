@@ -14,24 +14,45 @@ def recall_at_k(ground_truth: np.ndarray, predicted: np.ndarray, k: int = 10) ->
         raise ValueError("k must fit both sets of neighbors")
     return float(np.mean([len(set(a[:k]) & set(b[:k])) / k for a, b in zip(truth, pred)]))
 
-def benchmark_queries(index, queries: np.ndarray, k: int, *, warmup: int = 2):
-    if len(queries) == 0:
-        raise ValueError("At least one query required")
-    for query in queries[:min(warmup, len(queries))]:
-        index.query(query, k=k)
-    timings, neighbors, distances = [], [], []
-    for query in queries:
-        start = perf_counter()
-        idx, dst = index.query(query, k=k)
-        timings.append(perf_counter() - start)
-        neighbors.append(idx[0])
-        distances.append(dst[0])
-    timings = np.asarray(timings)
+def benchmark_queries(index, queries: np.ndarray, k: int, *, warmup: int = 5, repeats: int = 3):
+    if len(queries) == 0 or repeats < 1:
+        raise ValueError("At least one query and one timed repeat required")
+    for q in queries[:min(warmup, len(queries))]:
+        index.query(q, k=k)
+    per_query_ms, neighbors, distances = [], [], []
+    lsh_candidates, hash_candidates, fallback_flags = [], [], []
+    for q in queries:
+        durations = []
+        for repetition in range(repeats):
+            start = perf_counter()
+            idx, dst = index.query(q, k=k)
+            durations.append((perf_counter() - start) * 1000)
+            if repetition == 0:
+                neighbors.append(idx[0])
+                distances.append(dst[0])
+                d = getattr(index, 'last_query_diagnostics', None)
+                if d is not None:
+                    lsh_candidates.append(d['candidates'])
+                    hash_candidates.append(d['hash_candidates'])
+                    fallback_flags.append(d['fallback'])
+        per_query_ms.append(float(np.median(durations)))
+    timings = np.asarray(per_query_ms, dtype=float)
+    mean_ms = float(timings.mean())
     summary = {
-        "mean_latency_ms": float(timings.mean() * 1000),
-        "p95_latency_ms": float(np.percentile(timings, 95) * 1000),
-        "queries_per_second": float(len(queries) / timings.sum()),}
+        "mean_latency_ms": mean_ms,
+        "median_latency_ms": float(np.median(timings)),
+        "p95_latency_ms": float(np.percentile(timings, 95)),
+        "latency_std_ms": float(timings.std()),
+        "queries_per_second": float(1000 / mean_ms) if mean_ms > 0 else float('inf'),
+    }
+    if lsh_candidates:
+        summary.update({
+            'mean_lsh_candidates': float(np.mean(lsh_candidates)),
+            'mean_lsh_hash_candidates': float(np.mean(hash_candidates)),
+            'lsh_fallback_rate': float(np.mean(fallback_flags)),
+        })
     return np.asarray(neighbors), np.asarray(distances), summary
+
 
 def _fingerprint(base: np.ndarray, queries: np.ndarray) -> str:
     h = sha256()
