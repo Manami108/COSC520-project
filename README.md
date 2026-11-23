@@ -1,6 +1,6 @@
 # COSC 520 — Approximate Nearest Neighbour Search for RAG
 
-**Team:** Manami Yano and Mahdieh Sadat  
+**Team:** [Mahdieh Sadat](https://github.com/smahdieh) and [Manami Yano](https://github.com/Manami108)
 **Course:** COSC 520
 
 ## 1. Project Overview
