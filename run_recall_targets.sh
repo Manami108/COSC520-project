@@ -22,7 +22,7 @@ for dataset in sift-128-euclidean glove-100-angular; do
     --target-recalls 0.80 0.90 0.95 \
     --repeats 3 \
     --seed 42 \
-    --seeds 42 123 456 \
+    --seeds 123 456 789 \
     --output-dir results/recall_targets
 done
 

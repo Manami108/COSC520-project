@@ -65,14 +65,15 @@ def plot_dataset(folder):
             ax.scatter([r["recall_at_k"] for r in subset],
                        [r["median_latency_ms"] for r in subset],
                        label=algorithm.upper(), alpha=.65, s=28)
-            pf = frontier(subset)
-            if len(pf) > 1:
-                ax.plot([r["recall_at_k"] for r in pf],
-                        [r["median_latency_ms"] for r in pf], alpha=.6)
+            # Tuning plot: each dot is a tested configuration. No Pareto rings:
+            # within-method Pareto points are not necessarily globally competitive.
+        for target in ((.90, .95) if zoom else (.80, .90, .95)):
+            ax.axvline(target, color="gray", linestyle="--", linewidth=.8,
+                       alpha=.45, zorder=0)
         ax.set_xlim(.8 if zoom else -.02, 1.01)
         ax.set_xlabel("Validation Recall@10")
         ax.set_ylabel("Median per-query latency (ms)")
-        ax.set_title(f"{folder.name}: validation recall–latency tradeoff")
+        ax.set_title(f"{folder.name}: validation configurations (not final test results)")
         ax.grid(alpha=.25)
         ax.legend(title="Algorithm")
         fig.tight_layout()
@@ -141,6 +142,73 @@ def plot_dataset(folder):
     ax.legend()
     fig.tight_layout()
     path = output / "test_recall_latency.png"
+    fig.savefig(path, dpi=180)
+    plt.close(fig)
+    written.append(path)
+
+    # Report-friendly final comparison: ONE tuning-selected configuration per ANN
+    # algorithm, tested on held-out queries and averaged across independent builds.
+    # Place recall and latency on separate aligned axes, since there is no single
+    # scale that represents both metrics cleanly.
+    selected = []
+    for algorithm, rows in summary.items():
+        recalls = np.asarray([r["recall_at_k"] for r in rows], dtype=float)
+        latencies = np.asarray([r["median_latency_ms"] for r in rows], dtype=float)
+        is_knn = algorithm == "knn"
+        target = float(rows[0].get("target_recall", 0.90))
+        passed = is_knn or bool(np.all(recalls >= target))
+        selected.append({
+            "name": algorithm.upper(),
+            "recall": float(recalls.mean()),
+            "recall_sd": float(recalls.std(ddof=1)) if len(rows) > 1 else 0.,
+            "latency": float(latencies.mean()),
+            "latency_sd": float(latencies.std(ddof=1)) if len(rows) > 1 else 0.,
+            "passed": passed,
+            "is_knn": is_knn,
+        })
+    selected.sort(key=lambda r: (r["is_knn"], r["latency"]))
+    y_positions = np.arange(len(selected))
+    fig, (ax_recall, ax_latency) = plt.subplots(
+        1, 2, figsize=(10, max(3.7, len(selected) * .65 + 1.7)),
+        sharey=True, gridspec_kw={"width_ratios": [1, 1.35]})
+    palette = {"HNSW": "tab:blue", "IVF": "tab:orange",
+               "LSH": "tab:green", "VAMANA": "tab:red", "KNN": "tab:purple"}
+    target = float(largest[0].get("target_recall", 0.90))
+    ax_recall.axvline(target, color="black", ls="--", lw=1,
+                      alpha=.6, label=f"Target {target:.0%}")
+    for y, r in zip(y_positions, selected):
+        color = palette.get(r["name"], "tab:gray")
+        marker = "o" if r["passed"] else "x"
+        ax_recall.errorbar(r["recall"], y, xerr=r["recall_sd"], fmt=marker,
+                           markersize=7, color=color, capsize=3, zorder=3)
+        ax_latency.errorbar(r["latency"], y, xerr=r["latency_sd"], fmt=marker,
+                            markersize=7, color=color, capsize=3, zorder=3)
+    labels = [r["name"] + (" (target missed)" if not r["passed"] else "")
+              for r in selected]
+    ax_recall.set_yticks(y_positions, labels=labels)
+    ax_recall.invert_yaxis()
+    ax_recall.set_xlim(-.03, 1.04)
+    ax_recall.set_xlabel("Test Recall@10 (higher is better)")
+    ax_latency.set_xlabel("Median query latency, ms (lower is better)")
+    ax_recall.set_title("Accuracy")
+    ax_latency.set_title("Search speed")
+    ax_recall.legend(loc="lower left", fontsize=9)
+    for ax in (ax_recall, ax_latency):
+        ax.grid(axis="x", alpha=.22)
+        ax.set_axisbelow(True)
+    # When brute force is orders of magnitude slower, the log scale keeps all
+    # ANN algorithms visible without hiding the exact baseline.
+    positives = [r["latency"] for r in selected if r["latency"] > 0]
+    if positives and max(positives) / min(positives) >= 20:
+        ax_latency.set_xscale("log")
+    fig.suptitle(f"{folder.name}: selected configurations, held-out test (n={max_n:,})",
+                 fontsize=12)
+    fig.text(.5, .01,
+             "One selected configuration per algorithm; error bars: ±1 SD over index-build seeds. "
+             "X = target missed on at least one seed.",
+             ha="center", va="bottom", fontsize=8, color="dimgray")
+    fig.tight_layout(rect=(0, .04, 1, .96))
+    path = output / "test_algorithm_comparison.png"
     fig.savefig(path, dpi=180)
     plt.close(fig)
     written.append(path)
