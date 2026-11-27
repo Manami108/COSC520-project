@@ -180,5 +180,4 @@ COSC520-project/
 
 Project documentation: [Milestone 1](docs/MILESTONE1.md) · [Milestone 2](docs/MILESTONE2.md).
 
-If you've made it this far, congratulations! You've officially survived our README. See you at the presentation!
-— Mahdieh & Manami
+### If you've made it this far, congratulations! You've officially survived our README. See you at the presentation! — Mahdieh & Manami
