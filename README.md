@@ -2,7 +2,11 @@
 
 **Team:** [Mahdieh Sadat](https://github.com/smahdieh) and [Manami Yano](https://github.com/Manami108)
 
-This project compares five nearest-neighbour search algorithms for vector retrieval in retrieval-augmented generation (RAG), using Python and NumPy.
+Welcome to our COSC 520 final project! 🌎
+
+Finding your nearest neighbor sounds easy... until you have a million of them. In this project, we explore how different nearest neighbor search algorithms tackle this challenge and evaluate their efficiency, accuracy, and scalability in the context of Retrieval-Augmented Generation (RAG).
+
+To all the LLM lovers out there who are curious about how RAG works behind the scenes: don't worry! We've spent countless hours experimenting so you can spend five minutes reading 😉✨
 
 | Algorithm | Approach |
 |---|---|
@@ -28,7 +32,17 @@ python -m pip install -r requirements.txt
 
 On Windows, use `python -m venv .venv` and `.\.venv\Scripts\Activate.ps1` in PowerShell. The benchmark shell script requires Bash.
 
-## 2. Datasets
+## 2. Unit Tests
+
+Run the unit tests from the repository root:
+
+```bash
+python -m unittest discover -s tests -v
+```
+
+The tests verify the correctness of all five search algorithms, the evaluation pipeline, and experimental utilities. No dataset download is required.
+
+## 3. Datasets
 
 ```bash
 python datasets.py --dataset both
@@ -41,7 +55,7 @@ python datasets.py --dataset both
 
 Datasets are provided by [ANN-Benchmarks](https://github.com/erikbern/ann-benchmarks) and stored in `data/`. Exact ground truth is recomputed for each database subset.
 
-## 3. Interactive Demo
+## 4. Interactive Demo
 
 ```bash
 # Synthetic data (no download required)
@@ -51,11 +65,11 @@ python demo.py
 python demo.py --dataset data/sift-128-euclidean.hdf5 --n-base 2000 --n-queries 20 --k 10
 ```
 
-Compare retrieved neighbours, recall and latency across all five algorithms. Use the query navigation and search-effort buttons to inspect the results. PCA is used only for visualization; retrieval uses the original vector space.
+Compare retrieved neighbours, recall and latency across all five algorithms. Use the query navigation and search-effort buttons to inspect the results. PCA is used only for visualization, and retrieval uses the original vector space.
 
 Use `--no-show` to save the figures without opening an interactive window. Demo figures and metrics are saved in `results/demo/`, independently of benchmark results.
 
-## 4. Experiments
+## 5. Experiments
 
 ```bash
 # Run the tests
@@ -77,13 +91,13 @@ bash run_recall_targets.sh
 | Final ANN index-build seeds | 123, 456, 789 |
 | Timing repetitions | 3 per query |
 
-All algorithms use identical database subsets and queries within each dataset. For each recall target, the fastest configuration satisfying validation recall is selected; if none qualifies, the highest-recall configuration is selected. Parameters remain fixed across database sizes, and missed test recall targets are recorded.
+All algorithms use identical database subsets and queries within each dataset. For each recall target, the fastest configuration satisfying validation recall is selected. If none qualifies, the highest-recall configuration is selected. Parameters remain fixed across database sizes, and missed test recall targets are recorded.
 
 Sensitivity analysis varies one parameter at a time on the validation queries: LSH (`n_tables`), IVF (`nprobe`), HNSW (`ef_search`) and Vamana (`search_L`).
 
 The script defaults to one numerical-library thread and may take considerable time due to Python graph construction. The original 12-trial random-search protocol remains available with `bash run_recall_targets.sh original`. It uses a different query pool, so differences cannot be attributed solely to the tuning strategy.
 
-## 5. Results
+## 6. Results
 
 The main experiment saves outputs in `results/structured_tuning/`, grouped by recall target (`r800`, `r900`, `r950`) and dataset.
 
@@ -107,7 +121,7 @@ The `report_figures/` directory contains `report_recall_qps.png`, `report_scalab
 
 **Metrics:** Recall@10, mean/median/P95 query latency, estimated sequential QPS (1000 / mean latency in ms), build time, estimated index memory (MiB), and speedup versus exact k-NN. Data and generated results are excluded from Git.
 
-## 6. Repository Structure
+## 7. Repository Structure
 
 ```text
 COSC520-project/
@@ -148,14 +162,14 @@ COSC520-project/
 └── README.md
 ```
 
-## 7. Limitations
+## 8. Limitations
 
-- Educational Python/NumPy implementations; timings are not representative of optimized production systems.
-- Fixed configurations and a single tuning seed limit optimization coverage; equal trial counts do not imply equal tuning cost.
-- Database subsets are limited to 25K vectors; memory is estimated rather than measured as process RSS.
-- The study evaluates vector retrieval, not end-to-end RAG answer quality.
+- We use educational Python/NumPy implementations, so the measured runtimes may not reflect the performance of optimized production systems.
+- We use fixed configurations and a single tuning seed, which limit hyperparameter optimization. Equal trial counts do not necessarily imply equal tuning costs.
+- We limit database subsets to 25K vectors and estimate memory usage rather than directly measuring process RSS.
+- We focus on vector retrieval performance rather than end-to-end RAG answer quality.
 
-## 8. References and Credits
+## 9. References and Credits
 
 - LSH: Datar et al. (2004), [Locality-Sensitive Hashing Scheme Based on p-Stable Distributions](https://doi.org/10.1145/997817.997857).
 - IVF and SIFT: Jégou et al. (2011), [Product Quantization for Nearest Neighbor Search](https://doi.org/10.1109/TPAMI.2010.57).
@@ -165,6 +179,7 @@ COSC520-project/
 - GloVe: Pennington et al. (2014), [GloVe: Global Vectors for Word Representation](https://aclanthology.org/D14-1162/).
 - RAG: Lewis et al. (2020), [Retrieval-Augmented Generation](https://arxiv.org/abs/2005.11401).
 
-Generative AI (ChatGPT) assisted with code development, debugging, visualization and documentation.
-
 Project documentation: [Milestone 1](docs/MILESTONE1.md) · [Milestone 2](docs/MILESTONE2.md).
+
+If you've made it this far, congratulations! You've officially survived our README. See you at the presentation!
+— Mahdieh & Manami
