@@ -1,4 +1,3 @@
-
 from __future__ import annotations
 
 from hashlib import sha256
@@ -7,6 +6,9 @@ from time import perf_counter
 
 import numpy as np
 from algorithms.knn import BruteForceKNN
+
+# Invalidate cached ground truth from before deterministic top-k tie handling.
+GROUND_TRUTH_VERSION = "2"
 
 
 def recall_at_k(ground_truth: np.ndarray, predicted: np.ndarray, k: int = 10) -> float:
@@ -38,15 +40,19 @@ def benchmark_queries(index, queries: np.ndarray, k: int, *, warmup: int = 5, re
             if repetition == 0:
                 neighbors.append(ids[0])
                 distances.append(ds[0])
-                # Diagnostics are recorded only from an untimed read after the
-                # timed call, never re-running extra work in the measurement.
-                if (hasattr(index, "last_candidate_counts") and hasattr(index, "last_fallback_flags")
-                        and index.last_candidate_counts):
-                    candidate_counts.append(index.last_candidate_counts[0])
-                    fallback_flags.append(bool(index.last_fallback_flags[0]))
-                if hasattr(index, "last_probe_counts") and index.last_probe_counts:
-                    ivf_probes.append(index.last_probe_counts[0])
-                    ivf_candidates.append(index.last_candidate_counts[0])
+                # Read diagnostics outside the timed call, once per query.
+                # Graph indexes can expose fallback flags without candidate counts.
+                flags = getattr(index, "last_fallback_flags", ())
+                counts = getattr(index, "last_candidate_counts", ())
+                probes = getattr(index, "last_probe_counts", ())
+                if len(flags):
+                    fallback_flags.append(bool(flags[0]))
+                    if len(counts):
+                        candidate_counts.append(counts[0])
+                if len(probes):
+                    ivf_probes.append(probes[0])
+                    if len(counts):
+                        ivf_candidates.append(counts[0])
         per_query_ms.append(float(np.median(durations)))
     timings = np.asarray(per_query_ms, dtype=np.float64)
     mean = float(timings.mean())
@@ -60,10 +66,16 @@ def benchmark_queries(index, queries: np.ndarray, k: int, *, warmup: int = 5, re
     if candidate_counts:
         result["mean_candidates"] = float(np.mean(candidate_counts))
         result["candidate_fraction"] = float(np.mean(candidate_counts) / len(index.vectors))
+    if fallback_flags:
         result["fallback_rate"] = float(np.mean(fallback_flags))
     if ivf_probes:
         result["mean_clusters_probed"] = float(np.mean(ivf_probes))
+    if ivf_candidates:
         result["mean_ivf_candidates"] = float(np.mean(ivf_candidates))
+    # One graph-level diagnostic after timing, not once per query.
+    reachability = getattr(index, "graph_reachability", None)
+    if callable(reachability):
+        result["graph_reachability"] = float(reachability())
     return np.asarray(neighbors), np.asarray(distances), result
 
 
@@ -95,7 +107,9 @@ def get_ground_truth(base: np.ndarray, queries: np.ndarray, *, metric: str, k: i
     if path.exists():
         with np.load(path) as saved:
             ids, ds = saved["neighbors"], saved["distances"]
-        if ids.shape == (len(queries), k) and ds.shape == ids.shape:
+            version = saved["version"].item() if "version" in saved else None
+        if (version == GROUND_TRUTH_VERSION and ids.shape == (len(queries), k)
+                and ds.shape == ids.shape):
             return ids, ds, path, True
     output_dir.mkdir(parents=True, exist_ok=True)
     exact = BruteForceKNN(metric=metric, chunk_size=chunk_size).fit(base)
@@ -105,5 +119,6 @@ def get_ground_truth(base: np.ndarray, queries: np.ndarray, *, metric: str, k: i
         ids, ds = exact.query(query, k=k)
         neighbors[i], distances[i] = ids[0], ds[0]
     np.savez_compressed(path, neighbors=neighbors, distances=distances,
-                        metric=np.asarray(metric), fingerprint=np.asarray(fingerprint))
+                        metric=np.asarray(metric), fingerprint=np.asarray(fingerprint),
+                        version=np.asarray(GROUND_TRUTH_VERSION))
     return neighbors, distances, path, False
