@@ -357,10 +357,11 @@ def report_qps(root, output, written):
             ax.get_legend().remove()
         if i:
             ax.set_ylabel("")
-    fig.suptitle(f"Recall–QPS comparison on validation queries (n={n:,})", fontsize=13)
+    fig.suptitle(f"Recall–QPS comparison on validation queries (n={n:,})\n"
+                 "Lines: within-algorithm Pareto frontiers; faint markers: other sampled configurations", fontsize=12)
     handles = report_legend(datasets, exact=False)
     fig.legend(handles=handles, loc="lower center", ncol=len(handles), frameon=False)
-    fig.tight_layout(rect=(0, .09, 1, .94))
+    fig.subplots_adjust(left=.09, right=.99, bottom=.20, top=.80, wspace=.08)
     save_figure(fig, output / "report_recall_qps.png", written)
 
 
@@ -401,94 +402,8 @@ def report_scalability(root, output, written):
     fig.legend(handles=handles, loc="lower center", ncol=3, frameon=False)
     fig.suptitle("Held-out scalability: configurations selected for the 90% validation recall target\n"
                  "Error bars: ±1 SD across index-build seeds", fontsize=13)
-    fig.tight_layout(rect=(0, .065, 1, .945))
+    fig.subplots_adjust(left=.10, right=.99, bottom=.10, top=.88, wspace=.08, hspace=.22)
     save_figure(fig, output / "report_scalability.png", written)
-
-
-def report_speedup(root, output, written):
-    """Compare speedups only when every evaluated index seed meets the test target."""
-    from matplotlib.colors import Normalize
-    from matplotlib.patches import Rectangle
-    results = {t: report_data(root, "scaling.csv", t) for t in REPORT_TARGETS}
-    available = [rows for datasets in results.values() for _, rows, _ in datasets.values()]
-    if not available:
-        return
-    # Use the largest common size so all populated cells refer to the same N.
-    common_sizes = set.intersection(*({int(r["n_base"]) for r in rows} for rows in available))
-    if not common_sizes:
-        print("Skipping report_speedup_heatmap.png: no common database size.")
-        return
-    n = max(common_sizes)
-    ks = {int(meta.get("k", rows[0].get("k", 10)))
-          for datasets in results.values() for _, rows, meta in datasets.values()}
-    if len(ks) != 1:
-        raise ValueError("Speedup heatmap requires the same k across targets and datasets")
-    k = ks.pop()
-    algorithms = [a for a in STYLES if a != "knn"]
-    matrices, statuses = {}, {}
-    for name in REPORT_DATASETS:
-        values = np.full((len(algorithms), len(REPORT_TARGETS)), np.nan)
-        status = np.full(values.shape, "N/A", dtype=object)
-        for j, target in enumerate(REPORT_TARGETS):
-            if name not in results[target]:
-                continue
-            _, rows, meta = results[target][name]
-            largest = [r for r in rows if int(r["n_base"]) == n]
-            baseline = [r["median_latency_ms"] for r in largest if r["algorithm"] == "knn"]
-            expected_seeds = set(meta.get("final_seeds", []))
-            for i, algorithm in enumerate(algorithms):
-                group = [r for r in largest if r["algorithm"] == algorithm]
-                if not group:
-                    continue
-                if expected_seeds and {int(r["seed"]) for r in group} != expected_seeds:
-                    continue  # incomplete seed results are not a valid comparison
-                if not all(r["recall_at_k"] >= target and r.get("test_target_met", True)
-                           for r in group):
-                    status[i, j] = "Missed"
-                    continue
-                latency = float(np.mean([r["median_latency_ms"] for r in group]))
-                if baseline and np.isfinite(latency) and latency > 0:
-                    exact = float(np.mean(baseline))
-                    if np.isfinite(exact) and exact > 0:
-                        values[i, j] = exact / latency
-                        status[i, j] = "OK"
-        matrices[name], statuses[name] = values, status
-    finite = np.concatenate([m[np.isfinite(m)] for m in matrices.values()])
-    norm = Normalize(vmin=0, vmax=max(1., float(finite.max())) if finite.size else 1.)
-    cmap = plt.get_cmap("Blues").copy()
-    cmap.set_bad("#eeeeee")
-    fig, axes = plt.subplots(1, 2, figsize=(10.8, 4.5), layout="constrained")
-    for ax, (name, title) in zip(axes, REPORT_DATASETS.items()):
-        values, status = matrices[name], statuses[name]
-        im = ax.imshow(np.ma.masked_invalid(values), cmap=cmap, norm=norm, aspect="equal")
-        for i, algorithm in enumerate(algorithms):
-            for j, target in enumerate(REPORT_TARGETS):
-                v = values[i, j]
-                if np.isfinite(v):
-                    label = f"{v:.2f}×" if v < 10 else f"{v:.1f}×"
-                    rgba = cmap(norm(v))
-                    luminance = .2126*rgba[0] + .7152*rgba[1] + .0722*rgba[2]
-                    color = "white" if luminance < .45 else "#222222"
-                else:
-                    label, color = status[i, j], "#555555"
-                    if label == "Missed":
-                        ax.add_patch(Rectangle((j-.5, i-.5), 1, 1, hatch="///",
-                                               facecolor="none", edgecolor="#bbbbbb", lw=0))
-                ax.text(j, i, label, ha="center", va="center", color=color, fontsize=10)
-        ax.set_xticks(range(len(REPORT_TARGETS)), [f"{t:.0%}" for t in REPORT_TARGETS])
-        ax.set_yticks(range(len(algorithms)), [LABELS[a] for a in algorithms])
-        ax.set_xlabel(f"Required Recall@{k}")
-        ax.set_title(title, fontweight="bold")
-        ax.set_xticks(np.arange(-.5, len(REPORT_TARGETS), 1), minor=True)
-        ax.set_yticks(np.arange(-.5, len(algorithms), 1), minor=True)
-        ax.grid(which="minor", color="white", linewidth=2)
-        ax.tick_params(which="both", length=0)
-        for spine in ax.spines.values():
-            spine.set_visible(False)
-    fig.colorbar(im, ax=axes, shrink=.75, label="Speedup vs. exact k-NN (×)")
-    fig.suptitle(f"Held-out speedup at n={n:,}\n"
-                 "Missed = at least one seed below target; N/A = unavailable or incomplete", fontsize=12)
-    save_figure(fig, output / "report_speedup_heatmap.png", written)
 
 
 def report_sensitivity(root, output, written):
@@ -522,8 +437,15 @@ def report_sensitivity(root, output, written):
         axes[0, j].set_title(LABELS[a], fontweight="bold", color=style["color"])
         axes[0, j].axhline(.90, color="#777777", ls="--", lw=.9)
         axes[0, j].set_ylim(0, 1.03)
-        axes[1, j].set_xlabel(next(iter(parameters), "Parameter"))
+        param = next(iter(parameters), "Parameter")
+        # IVF probes double across the sweep; a log2 axis separates small values.
+        if param == "nprobe" and ticks and min(ticks) > 0:
+            axes[1, j].set_xscale("log", base=2)
+            axes[1, j].xaxis.set_minor_formatter(NullFormatter())
+            param += " (log₂ scale)"
+        axes[1, j].set_xlabel(param)
         axes[1, j].set_xticks(sorted(ticks))
+        axes[1, j].xaxis.set_major_formatter(FuncFormatter(lambda x, _: f"{x:g}"))
         for ax in axes[:, j]:
             format_axes(ax)
             if not ticks:
@@ -542,7 +464,7 @@ def report_sensitivity(root, output, written):
     fig.legend(handles=handles, loc="lower center", ncol=3, frameon=False)
     fig.suptitle("Parameter sensitivity on validation queries\n"
                  "Other parameters fixed at each dataset's configuration selected for the 90% target", fontsize=13)
-    fig.tight_layout(rect=(0, .08, 1, .90))
+    fig.subplots_adjust(left=.07, right=.99, bottom=.17, top=.81, wspace=.10, hspace=.15)
     save_figure(fig, output / "report_sensitivity.png", written)
 
 
@@ -551,7 +473,7 @@ def plot_report(root):
     output = root / "report_figures"
     output.mkdir(parents=True, exist_ok=True)
     written = []
-    for plot in (report_qps, report_scalability, report_speedup, report_sensitivity):
+    for plot in (report_qps, report_scalability, report_sensitivity):
         plot(root, output, written)
     print(f"Saved {len(written)} combined report figures in {output}")
     return written
