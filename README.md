@@ -110,16 +110,42 @@ The `report_figures/` directory contains `report_recall_qps.png`, `report_scalab
 ## 6. Repository Structure
 
 ```text
-algorithms/            # Five search implementations
-experiments/           # Benchmark, sensitivity analysis and plots
-tests/                 # Unit and pipeline tests
-docs/                  # Milestone documentation
-datasets.py            # Dataset download and loading
-evaluate.py            # Evaluation metrics and ground truth
-demo.py                # Interactive retrieval demo
-run.py                 # Individual algorithm execution
-run_recall_targets.sh   # Full experimental pipeline
-requirements.txt       # Dependencies
+COSC520-project/
+├── algorithms/
+│   ├── __init__.py
+│   ├── common.py
+│   ├── knn.py
+│   ├── lsh.py
+│   ├── ivf.py
+│   ├── hnsw.py
+│   └── vamana.py
+├── experiments/
+│   ├── __init__.py
+│   ├── benchmark.py
+│   ├── sensitivity.py
+│   └── plots.py
+├── tests/
+│   ├── test_knn.py
+│   ├── test_lsh.py
+│   ├── test_ivf.py
+│   ├── test_hnsw.py
+│   ├── test_vamana.py
+│   ├── test_pipeline.py
+│   └── test_experiment_tools.py
+├── docs/
+│   ├── MILESTONE1.md
+│   └── MILESTONE2.md
+├── data/                  # Downloaded datasets (generated)
+├── results/               # Experimental and demo outputs (generated)
+├── check_algorithms.py
+├── datasets.py
+├── evaluate.py
+├── demo.py
+├── run.py
+├── run_recall_targets.sh
+├── requirements.txt
+├── .gitignore
+└── README.md
 ```
 
 ## 7. Limitations
