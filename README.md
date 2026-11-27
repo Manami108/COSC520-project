@@ -17,7 +17,15 @@ We implement five search methods using Python and NumPy and compare their retrie
 | HNSW | Hierarchical Navigable Small World graph | Graph-based ANN |
 | Vamana | In-memory proximity graph using greedy search and robust pruning | Advanced graph-based ANN |
 
-Our Vamana implementation reproduces core graph construction and search ideas; it is **not** a full SSD-based DiskANN system.
+Our Vamana implementation reproduces core graph construction and search ideas. It is **not** a full SSD-based DiskANN system.
+
+### Implementation Details
+
+- **Exact k-NN:** Chunk-based exhaustive search with deterministic tie handling based on vector IDs.
+- **LSH:** Gaussian bucket hashing with data-dependent projection scaling and deterministic per-table random streams.
+- **IVF:** K-means clustering with adaptive cluster probing to ensure sufficient retrieval candidates.
+- **HNSW:** Hierarchical graph search with diversity-based neighbour selection, degree constraints, and graph reachability diagnostics.
+- **Vamana:** Greedy graph search and robust pruning using expanded vertices during construction, with metric-specific pruning.
 
 **Project documentation:** [Milestone 1](docs/MILESTONE1.md) · [Milestone 2](docs/MILESTONE2.md)
 
@@ -283,23 +291,59 @@ Repeat the benchmarking protocol on SIFT-128 (Euclidean) and GloVe-100 (cosine).
 
 ## 7. Results and Visualizations
 
-For the final report, use **tables** to compare selected algorithms on the held-out test set. Use **plots** primarily for trends: scalability and parameter sensitivity.
+The experimental results are presented using tables and visualizations to compare retrieval accuracy, query performance, scalability, and computational requirements.
 
-The checked-in plotting script produces:
+All figures use consistent algorithm-specific colours, marker shapes, and line styles. Logarithmic axes are used where appropriate to improve the comparison of measurements across different orders of magnitude. Figures are exported at 300 DPI.
+
+### 7.1 Generated Figures
 
 | Output | Purpose |
 |---|---|
-| `tuning_recall_latency.png`, `tuning_zoom.png` | Validation recall–latency trade-off across tried configurations |
-| `test_recall_latency.png` | Held-out test recall–latency comparison at the largest tested size |
-| `scaling_latency.png`, `scaling_p95.png` | Latency as database size increases |
-| `scaling_recall.png` | Recall as database size increases |
-| `scaling_build.png` | Index construction time as database size increases |
-| `scaling_memory.png` | Estimated index memory as database size increases |
-| `sensitivity_<algorithm>.png` | Recall-based sensitivity plots after `sensitivity.csv` is generated |
+| `tuning_recall_latency.png` | Validation recall–latency comparison across sampled configurations |
+| `tuning_zoom.png` | Detailed comparison in the high-recall region |
+| `tuning_recall_qps.png` | Validation recall–QPS comparison |
+| `test_recall_latency.png` | Held-out recall–latency comparison at the largest database size |
+| `test_algorithm_comparison.png` | Aligned comparison of recall and median query latency |
+| `scaling_latency.png` | Query latency across database sizes |
+| `scaling_p95.png` | P95 query latency across database sizes |
+| `scaling_recall.png` | Recall across database sizes |
+| `scaling_build.png` | Index construction time across database sizes |
+| `scaling_memory.png` | Estimated index memory across database sizes |
+| `scaling_combined.png` | Combined four-panel scalability comparison |
+| `sensitivity_<algorithm>.png` | Parameter sensitivity in terms of recall and query latency |
 
-The validation tuning plots include points for tested configurations and connecting lines through within-algorithm Pareto frontiers. These lines are visualization aids, not measurements of untested configurations. They should not be interpreted as continuous performance curves.
+### 7.2 Recall and Query Performance
 
-The primary result tables should report test Recall@10, median/p95 latency, build time, and estimated memory at a specified dataset size and recall target. ANN methods that fail the target should not be presented as the fastest methods **at that target**. Where applicable, report mean and standard deviation across final index-build seeds; the exact baseline has only one timing run per size in the main benchmark.
+The validation plots display all sampled configurations and connect non-dominated configurations within each algorithm to form empirical Pareto frontiers.
+
+For recall–latency comparisons, higher recall and lower latency are preferred. For recall–QPS comparisons, higher recall and higher estimated sequential QPS are preferred.
+
+The connecting lines serve as visualization aids and do not represent measurements of untested configurations.
+
+### 7.3 Scalability Analysis
+
+Scalability is evaluated using fixed selected hyperparameters across database sizes of 1K, 5K, 10K, and 25K vectors.
+
+The combined scalability figure presents four principal metrics:
+
+- Median query latency
+- Recall
+- Index construction time
+- Estimated index memory
+
+Individual figures are also generated for detailed analysis, including P95 query latency.
+
+### 7.4 Parameter Sensitivity
+
+Parameter sensitivity figures present recall and median query latency in separate aligned panels. This allows the computational cost of improving retrieval accuracy to be examined for each algorithm.
+
+### 7.5 Interpretation of Results
+
+The primary result tables report held-out test recall, median and P95 query latency, speedup relative to exact k-NN, index construction time, and estimated memory.
+
+Where applicable, results are reported using the mean and standard deviation across independent index-build seeds. The exact k-NN baseline is measured once per database size.
+
+Configurations that fail to satisfy the specified recall target are explicitly identified and are not considered valid candidates for performance comparisons at that target.
 
 ## 8. Scope and Limitations
 
