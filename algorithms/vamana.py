@@ -23,16 +23,18 @@ class VamanaIndex:
         return distances_to_query(self.vectors[ids], q, self.metric)
 
     def _greedy_search(self, q: np.ndarray, entry: int, width: int,
-                       *, exclude: int | None = None) -> list[tuple[float, int]]:
-        """Best-first graph traversal; return up to width best visited nodes."""
+                       *, exclude: int | None = None,
+                       expanded: list[int] | None = None) -> list[tuple[float, int]]:
         seen = {entry}
         initial = float(self._distance(q, [entry])[0])
         frontier = [(initial, entry)]
         best = [(-initial, -entry)]
         while frontier:
             dist, vertex = heapq.heappop(frontier)
-            if len(best) >= width and dist > -best[0][0]:
+            if len(best) >= width and (dist, vertex) > (-best[0][0], -best[0][1]):
                 break
+            if expanded is not None and vertex != exclude:
+                expanded.append(vertex)
             unseen = [v for v in self.graph[vertex] if v not in seen]
             if not unseen:
                 continue
@@ -52,6 +54,8 @@ class VamanaIndex:
         if not len(ids):
             return []
         dv = self._distance(self.vectors[vertex], ids).astype(np.float64)
+        # Euclidean distances are squared internally, so square alpha as well.
+        factor = alpha ** 2 if self.metric == "euclidean" else alpha
         remaining = np.ones(len(ids), dtype=bool)
         chosen = []
         while remaining.any() and len(chosen) < self.R:
@@ -63,7 +67,7 @@ class VamanaIndex:
             other = np.flatnonzero(remaining)
             if len(other):
                 pd = self._distance(self.vectors[p], ids[other])
-                remaining[other[pd * alpha <= dv[other]]] = False
+                remaining[other[pd * factor <= dv[other]]] = False
         return chosen
 
     def fit(self, vectors: np.ndarray) -> "VamanaIndex":
@@ -94,9 +98,11 @@ class VamanaIndex:
             pruning_alpha = 1.0 if iteration == 0 and self.passes > 1 else self.alpha
             for v in rng.permutation(n):
                 v = int(v)
-                discovered = [j for _, j in self._greedy_search(
-                    self.vectors[v], self.entry_point, min(self.L, n), exclude=v)]
-                merged = self.graph[v] + discovered
+                # RobustPrune uses the expanded vertices, not just the final list.
+                expanded: list[int] = []
+                self._greedy_search(self.vectors[v], self.entry_point,
+                                    min(self.L, n), exclude=v, expanded=expanded)
+                merged = self.graph[v] + expanded
                 self.graph[v] = self._robust_prune(v, merged, pruning_alpha)
                 for other in self.graph[v]:
                     if v not in self.graph[other]:

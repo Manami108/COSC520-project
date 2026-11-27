@@ -3,6 +3,7 @@ from __future__ import annotations
 import numpy as np
 from .common import prepare_vectors
 
+
 class BruteForceKNN:
     def __init__(self, metric: str = "euclidean", chunk_size: int = 8192):
         if metric not in {"euclidean", "cosine"}:
@@ -42,12 +43,22 @@ class BruteForceKNN:
                 difference = block - q
                 sq_dists = np.einsum("ij,ij->i", difference, difference)
                 take = min(k, len(block))
-                local = np.argpartition(sq_dists, take - 1)[:take]
+                if take == len(block):
+                    local = np.arange(len(block), dtype=np.int64)
+                else:
+                    # Partition is fast, but its choice among boundary ties is
+                    # unspecified. Keep all strictly closer points and fill
+                    # the remaining places with the smallest tied vector IDs.
+                    local = np.argpartition(sq_dists, take - 1)[:take]
+                    cutoff = np.max(sq_dists[local])
+                    closer = local[sq_dists[local] < cutoff]
+                    tied = np.flatnonzero(sq_dists == cutoff)
+                    local = np.concatenate((closer, tied[:take - len(closer)]))
                 candidate_indices = np.concatenate((best_indices, local + start))
                 candidate_sq_dists = np.concatenate((best_sq_dists, sq_dists[local]))
-                keep = min(k, len(candidate_indices))
-                selected = np.argpartition(candidate_sq_dists, keep - 1)[:keep]
-                ordered = selected[np.lexsort((candidate_indices[selected], candidate_sq_dists[selected]))]
+                # At most 2k candidates: sort by distance, then global ID,
+                # before truncating, so ties across chunks are deterministic.
+                ordered = np.lexsort((candidate_indices, candidate_sq_dists))[:k]
                 best_indices = candidate_indices[ordered]
                 best_sq_dists = candidate_sq_dists[ordered]
             indices[qi] = best_indices

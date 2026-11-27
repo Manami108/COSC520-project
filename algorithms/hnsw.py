@@ -4,7 +4,8 @@ import math
 import sys
 from collections.abc import Sequence
 import numpy as np
-from .common import prepare_vectors, distances_to_query, nearest, output_distances
+from .common import prepare_vectors, output_distances
+
 
 class HNSWIndex:
     def __init__(self, metric: str = "euclidean", M: int = 8,
@@ -23,6 +24,7 @@ class HNSWIndex:
         self.entry_point: int | None = None
         self.max_level = -1
         self._rng = np.random.default_rng(seed)
+        self.last_fallback_flags: list[bool] = []
 
     def _random_level(self) -> int:
         u = max(float(self._rng.random()), np.finfo(float).tiny)
@@ -47,6 +49,8 @@ class HNSWIndex:
             d = self._distance(q, node)
             heapq.heappush(candidates, (d, node))
             heapq.heappush(best, (-d, -node))
+            if len(best) > ef:
+                heapq.heappop(best)
         while candidates:
             d, node = heapq.heappop(candidates)
             if len(best) >= ef and d > -best[0][0]:
@@ -56,8 +60,8 @@ class HNSWIndex:
                     continue
                 visited.add(other)
                 nd = self._distance(q, other)
-                worst_d = -best[0][0] if best else math.inf
-                if len(best) < ef or nd < worst_d:
+                # Use vector ID to break equal-distance ties consistently.
+                if len(best) < ef or (nd, other) < (-best[0][0], -best[0][1]):
                     heapq.heappush(candidates, (nd, other))
                     heapq.heappush(best, (-nd, -other))
                     if len(best) > ef:
@@ -94,6 +98,8 @@ class HNSWIndex:
                 q = self.vectors[other]
                 options = [(self._distance(q, candidate), candidate)
                            for candidate in adj[other] if candidate != other]
+                # Pruning can produce directed edges; do not remove reverse
+                # links unnecessarily, as that can reduce reachability.
                 adj[other] = self._select_neighbors(q, options, degree_limit, exclude=other)
 
     def fit(self, vectors: np.ndarray) -> "HNSWIndex":
@@ -103,6 +109,7 @@ class HNSWIndex:
         self.entry_point = None
         self.max_level = -1
         self._rng = np.random.default_rng(self.seed)
+        self.last_fallback_flags = []
         for node, q in enumerate(self.vectors):
             level = self._random_level()
             self.levels.append(level)
@@ -124,8 +131,9 @@ class HNSWIndex:
 
             for layer in range(min(level, previous_top), -1, -1):
                 candidates = self._search_layer(q, entry, self.ef_construction, layer)
-                cap = 2 * self.M if layer == 0 else self.M
-                picked = self._select_neighbors(q, candidates, cap, exclude=node)
+                # Select M initial neighbours at every layer. Existing nodes
+                # may grow to 2M at layer zero through reverse-edge insertion.
+                picked = self._select_neighbors(q, candidates, self.M, exclude=node)
                 self._connect(node, picked, layer)
                 # Carry candidate entry points to the next lower (denser) layer.
                 entry = [v for _, v in candidates]
@@ -134,6 +142,31 @@ class HNSWIndex:
                 self.entry_point = node
                 self.max_level = level
         return self
+
+    def graph_reachability(self) -> float:
+        """Fraction of base-layer vertices reachable from the entry point.
+
+        Diagnostic only: call outside timed build and query measurements.
+        Traverses directed edges without imposing a search-width limit.
+        """
+        if self.vectors is None or self.entry_point is None:
+            raise RuntimeError("Call fit() first")
+        adjacency = self.layers[0]
+        visited = {self.entry_point}
+        pending = [self.entry_point]
+        while pending:
+            node = pending.pop()
+            for other in adjacency[node]:
+                if other not in visited:
+                    visited.add(other)
+                    pending.append(other)
+        return len(visited) / len(adjacency)
+
+    @property
+    def last_fallback_rate(self) -> float:
+        """Fraction of queries in the most recent query() call using fallback."""
+        return (sum(self.last_fallback_flags) / len(self.last_fallback_flags)
+                if self.last_fallback_flags else 0.0)
 
     @property
     def index_bytes(self) -> int:
@@ -153,13 +186,15 @@ class HNSWIndex:
         if queries.shape[1] != self.vectors.shape[1]:
             raise ValueError("Query dimensions differ")
         results, distances = [], []
+        fallback_flags = []
         for q in queries:
             entry = [self.entry_point]
             for layer in range(self.max_level, 0, -1):
                 closest = self._search_layer(q, entry, 1, layer)
                 entry = [closest[0][1]]
             candidates = self._search_layer(q, entry, max(self.ef_search, k), 0)
-            if len(candidates) < k:
+            used_fallback = len(candidates) < k
+            if used_fallback:
                 # Small disconnected components can arise for pathological inputs;
                 # seed additional searches without evaluating every database vector.
                 known = {v for _, v in candidates}
@@ -178,4 +213,6 @@ class HNSWIndex:
             raw_dist = np.asarray([dist for dist, _ in selected], dtype=np.float32)
             results.append(ids)
             distances.append(output_distances(raw_dist, self.metric))
+            fallback_flags.append(used_fallback)
+        self.last_fallback_flags = fallback_flags
         return np.stack(results), np.stack(distances)
