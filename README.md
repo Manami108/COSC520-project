@@ -151,7 +151,6 @@ COSC520-project/
 │   └── MILESTONE2.md
 ├── data/                  # Downloaded datasets (generated)
 ├── results/               # Experimental and demo outputs (generated)
-├── check_algorithms.py
 ├── datasets.py
 ├── evaluate.py
 ├── demo.py
