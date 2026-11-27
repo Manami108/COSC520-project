@@ -345,6 +345,26 @@ Where applicable, results are reported using the mean and standard deviation acr
 
 Configurations that fail to satisfy the specified recall target are explicitly identified and are not considered valid candidates for performance comparisons at that target.
 
+### Combined Figures
+
+Generate combined figures for the final report:
+
+```bash
+python -m experiments.plots --input-dir results/recall_targets --report-only
+```
+
+The combined figures are saved in
+`results/recall_targets/report_figures/`:
+
+- `report_recall_qps.png`
+- `report_scalability.png`
+- `report_speedup_heatmap.png`
+- `report_sensitivity.png`
+
+These figures combine experimental results across datasets,
+algorithms, and recall requirements without requiring
+additional benchmark runs.
+
 ## 8. Scope and Limitations
 
 - The methods are educational Python/NumPy implementations; measured execution time depends on both algorithm design and implementation overhead.

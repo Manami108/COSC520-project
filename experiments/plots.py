@@ -286,16 +286,293 @@ def plot_dataset(folder):
     return written
 
 
+# Combined figures for the report (read the existing benchmark CSV files).
+REPORT_DATASETS = {
+    "sift-128-euclidean": "SIFT-128",
+    "glove-100-angular": "GloVe-100",
+}
+REPORT_TARGETS = (0.80, 0.90, 0.95)
+
+
+def report_data(root, filename, target=.90):
+    """Read available results from one recall-target directory."""
+    label = f"r{round(target * 1000):03d}"
+    datasets = {}
+    for name, title in REPORT_DATASETS.items():
+        folder = root / label / name
+        path = folder / filename
+        if not path.is_file():
+            print(f"Missing {path}; report data unavailable.")
+            continue
+        rows = read_rows(path)
+        if not rows:
+            print(f"Empty {path}; report data unavailable.")
+            continue
+        meta_path = folder / "metadata.json"
+        metadata = json.loads(meta_path.read_text(encoding="utf-8")) if meta_path.exists() else {}
+        if ("target_recall" in metadata and
+                not np.isclose(float(metadata["target_recall"]), target)):
+            raise ValueError(f"Recall target in {meta_path} does not match {label}")
+        datasets[name] = (title, rows, metadata)
+    return datasets
+
+
+def report_k(datasets):
+    values = {int(meta.get("k", rows[0].get("k", 10)))
+              for _, rows, meta in datasets.values()}
+    if len(values) != 1:
+        raise ValueError("Combined figures require the same k for both datasets")
+    return values.pop()
+
+
+def report_legend(datasets, *, exact=True):
+    from matplotlib.lines import Line2D
+    present = {r["algorithm"] for _, rows, _ in datasets.values() for r in rows}
+    return [Line2D([], [], **STYLES[a], markersize=5, linewidth=1.5,
+                   label=LABELS[a]) for a in STYLES
+            if a in present and (exact or a != "knn")]
+
+
+def report_qps(root, output, written):
+    datasets = report_data(root, "tuning.csv")
+    if len(datasets) != len(REPORT_DATASETS):
+        return
+    if any(not all(r.get("queries_per_second") not in (None, "")
+                   and np.isfinite(float(r["queries_per_second"]))
+                   and float(r["queries_per_second"]) > 0 for r in rows)
+           for _, rows, _ in datasets.values()):
+        print("Skipping report_recall_qps.png: missing or invalid QPS values.")
+        return
+    k = report_k(datasets)
+    sizes = {int(r["n_base"]) for _, rows, _ in datasets.values() for r in rows}
+    if len(sizes) != 1:
+        raise ValueError("Combined tuning figure requires a common tuning database size")
+    n = sizes.pop()
+    fig, axes = plt.subplots(1, 2, figsize=(11.2, 4.9), sharey=True)
+    for i, (ax, (title, rows, _)) in enumerate(zip(axes, datasets.values())):
+        plot_tuning(rows, "queries_per_second", "Estimated sequential QPS (1/s)",
+                    k, title, REPORT_TARGETS, ax, higher_is_better=True)
+        ax.set_title(f"({chr(97+i)}) {title}")
+        if ax.get_legend() is not None:
+            ax.get_legend().remove()
+        if i:
+            ax.set_ylabel("")
+    fig.suptitle(f"Recall–QPS comparison on validation queries (n={n:,})", fontsize=13)
+    handles = report_legend(datasets, exact=False)
+    fig.legend(handles=handles, loc="lower center", ncol=len(handles), frameon=False)
+    fig.tight_layout(rect=(0, .09, 1, .94))
+    save_figure(fig, output / "report_recall_qps.png", written)
+
+
+def report_scalability(root, output, written):
+    target = .90
+    datasets = report_data(root, "scaling.csv", target)
+    if len(datasets) != len(REPORT_DATASETS):
+        return
+    k = report_k(datasets)
+    metrics = [
+        ("median_latency_ms", "Median query latency (ms)"),
+        ("recall_at_k", f"Test Recall@{k}"),
+        ("build_seconds", "Index build time (s)"),
+        ("index_memory_mb_estimate", "Estimated memory (MiB)"),
+    ]
+    fig, axes = plt.subplots(4, 2, figsize=(10.6, 12), sharey="row")
+    for j, (title, rows, _) in enumerate(datasets.values()):
+        for i, (field, ylabel) in enumerate(metrics):
+            ax = axes[i, j]
+            plot_scaling(ax, rows, field, ylabel, target)
+            if i == 0:
+                ax.set_title(title, fontweight="bold")
+            if j:
+                ax.set_ylabel("")
+            if i < len(metrics) - 1:
+                ax.set_xlabel("")
+    # A metric has the same scale and limits in both dataset panels.
+    for i, (field, _) in enumerate(metrics):
+        if field in {"median_latency_ms", "build_seconds"}:
+            values = [float(r[field]) for _, rows, _ in datasets.values() for r in rows]
+            scale = "log" if all(np.isfinite(v) and v > 0 for v in values) else "linear"
+            for ax in axes[i]:
+                ax.set_yscale(scale)
+                format_axes(ax)
+    from matplotlib.lines import Line2D
+    handles = report_legend(datasets)
+    handles.append(Line2D([], [], color="#777777", ls="--", lw=.9, label="90% recall target"))
+    fig.legend(handles=handles, loc="lower center", ncol=3, frameon=False)
+    fig.suptitle("Held-out scalability: configurations selected for the 90% validation recall target\n"
+                 "Error bars: ±1 SD across index-build seeds", fontsize=13)
+    fig.tight_layout(rect=(0, .065, 1, .945))
+    save_figure(fig, output / "report_scalability.png", written)
+
+
+def report_speedup(root, output, written):
+    """Compare speedups only when every evaluated index seed meets the test target."""
+    from matplotlib.colors import Normalize
+    from matplotlib.patches import Rectangle
+    results = {t: report_data(root, "scaling.csv", t) for t in REPORT_TARGETS}
+    available = [rows for datasets in results.values() for _, rows, _ in datasets.values()]
+    if not available:
+        return
+    # Use the largest common size so all populated cells refer to the same N.
+    common_sizes = set.intersection(*({int(r["n_base"]) for r in rows} for rows in available))
+    if not common_sizes:
+        print("Skipping report_speedup_heatmap.png: no common database size.")
+        return
+    n = max(common_sizes)
+    ks = {int(meta.get("k", rows[0].get("k", 10)))
+          for datasets in results.values() for _, rows, meta in datasets.values()}
+    if len(ks) != 1:
+        raise ValueError("Speedup heatmap requires the same k across targets and datasets")
+    k = ks.pop()
+    algorithms = [a for a in STYLES if a != "knn"]
+    matrices, statuses = {}, {}
+    for name in REPORT_DATASETS:
+        values = np.full((len(algorithms), len(REPORT_TARGETS)), np.nan)
+        status = np.full(values.shape, "N/A", dtype=object)
+        for j, target in enumerate(REPORT_TARGETS):
+            if name not in results[target]:
+                continue
+            _, rows, meta = results[target][name]
+            largest = [r for r in rows if int(r["n_base"]) == n]
+            baseline = [r["median_latency_ms"] for r in largest if r["algorithm"] == "knn"]
+            expected_seeds = set(meta.get("final_seeds", []))
+            for i, algorithm in enumerate(algorithms):
+                group = [r for r in largest if r["algorithm"] == algorithm]
+                if not group:
+                    continue
+                if expected_seeds and {int(r["seed"]) for r in group} != expected_seeds:
+                    continue  # incomplete seed results are not a valid comparison
+                if not all(r["recall_at_k"] >= target and r.get("test_target_met", True)
+                           for r in group):
+                    status[i, j] = "Missed"
+                    continue
+                latency = float(np.mean([r["median_latency_ms"] for r in group]))
+                if baseline and np.isfinite(latency) and latency > 0:
+                    exact = float(np.mean(baseline))
+                    if np.isfinite(exact) and exact > 0:
+                        values[i, j] = exact / latency
+                        status[i, j] = "OK"
+        matrices[name], statuses[name] = values, status
+    finite = np.concatenate([m[np.isfinite(m)] for m in matrices.values()])
+    norm = Normalize(vmin=0, vmax=max(1., float(finite.max())) if finite.size else 1.)
+    cmap = plt.get_cmap("Blues").copy()
+    cmap.set_bad("#eeeeee")
+    fig, axes = plt.subplots(1, 2, figsize=(10.8, 4.5), layout="constrained")
+    for ax, (name, title) in zip(axes, REPORT_DATASETS.items()):
+        values, status = matrices[name], statuses[name]
+        im = ax.imshow(np.ma.masked_invalid(values), cmap=cmap, norm=norm, aspect="equal")
+        for i, algorithm in enumerate(algorithms):
+            for j, target in enumerate(REPORT_TARGETS):
+                v = values[i, j]
+                if np.isfinite(v):
+                    label = f"{v:.2f}×" if v < 10 else f"{v:.1f}×"
+                    rgba = cmap(norm(v))
+                    luminance = .2126*rgba[0] + .7152*rgba[1] + .0722*rgba[2]
+                    color = "white" if luminance < .45 else "#222222"
+                else:
+                    label, color = status[i, j], "#555555"
+                    if label == "Missed":
+                        ax.add_patch(Rectangle((j-.5, i-.5), 1, 1, hatch="///",
+                                               facecolor="none", edgecolor="#bbbbbb", lw=0))
+                ax.text(j, i, label, ha="center", va="center", color=color, fontsize=10)
+        ax.set_xticks(range(len(REPORT_TARGETS)), [f"{t:.0%}" for t in REPORT_TARGETS])
+        ax.set_yticks(range(len(algorithms)), [LABELS[a] for a in algorithms])
+        ax.set_xlabel(f"Required Recall@{k}")
+        ax.set_title(title, fontweight="bold")
+        ax.set_xticks(np.arange(-.5, len(REPORT_TARGETS), 1), minor=True)
+        ax.set_yticks(np.arange(-.5, len(algorithms), 1), minor=True)
+        ax.grid(which="minor", color="white", linewidth=2)
+        ax.tick_params(which="both", length=0)
+        for spine in ax.spines.values():
+            spine.set_visible(False)
+    fig.colorbar(im, ax=axes, shrink=.75, label="Speedup vs. exact k-NN (×)")
+    fig.suptitle(f"Held-out speedup at n={n:,}\n"
+                 "Missed = at least one seed below target; N/A = unavailable or incomplete", fontsize=12)
+    save_figure(fig, output / "report_speedup_heatmap.png", written)
+
+
+def report_sensitivity(root, output, written):
+    datasets = report_data(root, "sensitivity.csv")
+    if len(datasets) != len(REPORT_DATASETS):
+        print("Run the 90% sensitivity analysis for both datasets before generating this figure.")
+        return
+    k = report_k(datasets)
+    algorithms = [a for a in STYLES if a != "knn"]
+    from matplotlib.lines import Line2D
+    fig, axes = plt.subplots(2, len(algorithms), figsize=(13.8, 6.5), sharex="col", sharey="row")
+    for j, a in enumerate(algorithms):
+        style = STYLES[a]
+        parameters, ticks = set(), set()
+        for d, (_, rows, _) in enumerate(datasets.values()):
+            group = sorted((r for r in rows if r["algorithm"] == a), key=lambda r: r["parameter_value"])
+            if not group:
+                continue
+            parameters.update(r["parameter_name"] for r in group)
+            x = [r["parameter_value"] for r in group]
+            ticks.update(x)
+            # Preserve algorithm colour, marker and line style. Dataset is
+            # distinguished by filled versus hollow markers.
+            kwargs = dict(**style, markersize=5, linewidth=1.5,
+                          markerfacecolor=style["color"] if d == 0 else "white",
+                          markeredgewidth=1.2, alpha=1. if d == 0 else .7)
+            axes[0, j].plot(x, [r["recall_at_k"] for r in group], **kwargs)
+            axes[1, j].plot(x, [r["median_latency_ms"] for r in group], **kwargs)
+        if len(parameters) > 1:
+            raise ValueError(f"Inconsistent sensitivity parameter for {a}: {parameters}")
+        axes[0, j].set_title(LABELS[a], fontweight="bold", color=style["color"])
+        axes[0, j].axhline(.90, color="#777777", ls="--", lw=.9)
+        axes[0, j].set_ylim(0, 1.03)
+        axes[1, j].set_xlabel(next(iter(parameters), "Parameter"))
+        axes[1, j].set_xticks(sorted(ticks))
+        for ax in axes[:, j]:
+            format_axes(ax)
+            if not ticks:
+                ax.text(.5, .5, "No results", transform=ax.transAxes, ha="center")
+    values = [r["median_latency_ms"] for _, rows, _ in datasets.values() for r in rows]
+    if values and all(np.isfinite(v) and v > 0 for v in values):
+        for ax in axes[1]:
+            ax.set_yscale("log")
+            format_axes(ax)
+    axes[0, 0].set_ylabel(f"Validation Recall@{k}")
+    axes[1, 0].set_ylabel("Median query latency (ms)")
+    handles = [Line2D([], [], color="#444444", marker="o", label="SIFT-128 (filled)", lw=1.5),
+               Line2D([], [], color="#444444", marker="o", markerfacecolor="white",
+                      alpha=.7, label="GloVe-100 (hollow)", lw=1.5),
+               Line2D([], [], color="#777777", ls="--", lw=.9, label="90% recall target")]
+    fig.legend(handles=handles, loc="lower center", ncol=3, frameon=False)
+    fig.suptitle("Parameter sensitivity on validation queries\n"
+                 "Other parameters fixed at each dataset's configuration selected for the 90% target", fontsize=13)
+    fig.tight_layout(rect=(0, .08, 1, .90))
+    save_figure(fig, output / "report_sensitivity.png", written)
+
+
+def plot_report(root):
+    root = Path(root)
+    output = root / "report_figures"
+    output.mkdir(parents=True, exist_ok=True)
+    written = []
+    for plot in (report_qps, report_scalability, report_speedup, report_sensitivity):
+        plot(root, output, written)
+    print(f"Saved {len(written)} combined report figures in {output}")
+    return written
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--input-dir", type=Path, default=Path("results/optimized"))
+    parser.add_argument("--report-only", action="store_true",
+                        help="Generate combined figures from the recall_targets root without rerunning experiments.")
     args = parser.parse_args(argv)
     if not args.input_dir.is_dir():
         parser.error(f"Missing input directory: {args.input_dir}")
     with plt.style.context("default"):
-        for folder in sorted(args.input_dir.iterdir()):
-            if folder.is_dir():
-                plot_dataset(folder)
+        if args.report_only or any((args.input_dir / f"r{round(t*1000):03d}").is_dir()
+                                   for t in REPORT_TARGETS):
+            plot_report(args.input_dir)
+        else:
+            for folder in sorted(args.input_dir.iterdir()):
+                if folder.is_dir():
+                    plot_dataset(folder)
 
 
 if __name__ == "__main__":
